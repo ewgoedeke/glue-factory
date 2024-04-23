@@ -2,6 +2,7 @@ import shutil
 import zipfile
 from pathlib import Path
 
+import numpy as np
 import torch
 import logging
 
@@ -82,7 +83,6 @@ class MiniDepthDataset(BaseDataset):
         # Only reads Image as tensor, no additional metadata
         img = load_image(path, grayscale=self.grayscale)
         if enforce_batch_dim:
-            print("Enforce batch dimension")
             if img.ndim < 4:
                 img = img.unsqueeze(0)
         assert img.ndim >= 3
@@ -96,6 +96,11 @@ class MiniDepthDataset(BaseDataset):
         path = self.image_paths[idx]
         img = self._read_image(self.img_dir / path)
         data = {"name": str(path), **self.preprocessor(img)}  # add metadata, like transform, image_size etc...
+        if self.conf.load_features.do:
+            gt = self._read_groundtruth(path)
+            data = {**data, **gt}
+        # fix err in dkd todo check together with batching
+        del data['image_size']  # torch.from_numpy(data['image_size'])
         return data
 
     def __len__(self):
