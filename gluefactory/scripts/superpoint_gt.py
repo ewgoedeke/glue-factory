@@ -3,7 +3,6 @@ Run the homography adaptation for all images in a given folder
 to generate ground truth heatmap using superpoint.
 """
 
-import os
 import argparse
 from datetime import datetime
 
@@ -85,7 +84,7 @@ def sample_homography(img, conf: dict, size: list):
     return data
 
 
-def ha_df(img, num=100, border_margin=3, min_counts=5):
+def ha_df(img, num=100):
     """ Perform homography adaptation to regress line distance function maps.
     Args:
         img: a grayscale np image.
@@ -144,26 +143,31 @@ def ha_df(img, num=100, border_margin=3, min_counts=5):
     return median_scores_non_zero
 
 
-def process_image(img_data, num_H, output_file_path):
-    img = img_data["image"] # B x C x H x W
+def process_image(lock, img_data, num_H, output_file_path):
+    img = img_data["image"]  # B x C x H x W
     img_npy = img.numpy()
     img_npy = img_npy[0, :, :, :]
     img_npy = np.transpose(img_npy, (1, 2, 0))  # H x W x C
-    #print(img_npy.shape)
     # Run homography adaptation
     superpoint_heatmap = ha_df(img_npy, num=num_H)
 
+    assert len(img_data["name"]) == 1  # Currently expect batch size one!
+
     # Save the DF in a hdf5 file
+    lock.acquire()
     with h5py.File(output_file_path, "a") as f:
-        grp = f.create_group(img_data["name"])
+        grp = f.create_group(img_data["name"][0])
         grp.create_dataset("superpoint_heatmap", data=superpoint_heatmap)
+    lock.release()
 
 
 def export_ha(data_loader, output_file_path, num_H, n_jobs):
     multiprocessing.set_start_method('spawn')
+    lock = multiprocessing.Lock()
     # Process each image in parallel
     Parallel(n_jobs=n_jobs, backend='multiprocessing')(
-        delayed(process_image)(img_data, num_H, output_file_path) for img_data in tqdm(data_loader, total=len(data_loader)))
+        delayed(process_image)(lock, img_data, num_H, output_file_path) for img_data in
+        tqdm(data_loader, total=len(data_loader)))
 
 
 if __name__ == "__main__":
@@ -173,13 +177,15 @@ if __name__ == "__main__":
     parser.add_argument('--n_jobs', type=int, default=1, help='Number of jobs to run in parallel.')
     args = parser.parse_args()
 
-    out_path = EVAL_PATH / args.output_folder / "predictions_{0}.hdf5".format(
+    out_folder_path = EVAL_PATH / args.output_folder
+    out_path = out_folder_path / "predictions_{0}.hdf5".format(
         datetime.now().strftime("%Y%m%d_%H%M%S"))
+    out_folder_path.mkdir(exist_ok=True, parents=True)
 
     print("OUTPUT PATH: ", out_path)
     print("NUMBER OF HOMOGRAPHIES: ", args.num_H)
     print("N JOBS: ", args.n_jobs)
 
-    dataloader = get_dataset_and_loader(args.n_jobs)
+    dataloader = get_dataset_and_loader(args.n_jobs)  # todo: specify different from num overall jobs?
     export_ha(dataloader, out_path, args.num_H, args.n_jobs)
     print("Done !")
