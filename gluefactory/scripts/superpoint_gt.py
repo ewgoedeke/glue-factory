@@ -5,14 +5,19 @@ to generate ground truth heatmap using superpoint.
 
 import os
 import argparse
+from datetime import datetime
+
 import numpy as np
 import cv2
 import h5py
 import torch
+from omegaconf import OmegaConf
 from tqdm import tqdm
 from joblib import Parallel, delayed
 import multiprocessing
 
+from gluefactory.settings import EVAL_PATH
+from gluefactory.datasets import get_dataset
 from gluefactory.models.extractors.superpoint_open import SuperPoint
 
 from gluefactory.geometry.homography import sample_homography_corners
@@ -51,6 +56,23 @@ homography_params = {
     'max_angle': 1.57,
     'allow_artifacts': True
 }
+
+
+def get_dataset_and_loader(num_workers):  # folder where dataset images are placed
+    config = {
+        'name': 'minidepth',  # name of dataset class in gluefactory > datasets
+        'grayscale': True,  # commented out things -> dataset must also have these keys but has not
+        'preprocessing': {
+            'resize': [800, 800]
+        },
+        'train_batch_size': 1,  # prefix must match split mode
+        'num_workers': num_workers,
+        'split': 'train'  # if implemented by dataset class gives different splits
+    }
+    omega_conf = OmegaConf.create(config)
+    dataset = get_dataset(omega_conf.name)(omega_conf)
+    loader = dataset.get_data_loader(omega_conf.get('split', 'train'))
+    return loader
 
 
 def sample_homography(img, conf: dict, size: list):
@@ -101,8 +123,6 @@ def ha_df(img, num=100, border_margin=3, min_counts=5):
             warped_back_kp = warp_points(keypoints, homography['H_'], inverse=True)
             warped_back_kp = np.floor(warped_back_kp).astype(int)
 
-            scores_xy = np.zeros((w, h), dtype=np.float32)
-
             for j in range(len(warped_back_kp)):
                 x, y = warped_back_kp[j][0] + 1, warped_back_kp[j][1] + 1
                 if x < w and y < h:
@@ -124,52 +144,42 @@ def ha_df(img, num=100, border_margin=3, min_counts=5):
     return median_scores_non_zero
 
 
-def process_image(img_path, randomize_contrast, num_H, output_folder):
-    img = cv2.imread(img_path)
-
-    new_size = (800, 800)
-    resize_img = cv2.resize(img, new_size)
-    # convert from BGR to grayscale
-    img = cv2.cvtColor(resize_img, cv2.COLOR_BGR2GRAY)
-
+def process_image(img_data, num_H, output_file_path):
+    img = img_data["image"] # B x C x H x W
+    img_npy = img.numpy()
+    img_npy = img_npy[0, :, :, :]
+    img_npy = np.transpose(img_npy, (1, 2, 0))  # H x W x C
+    #print(img_npy.shape)
     # Run homography adaptation
-    superpoint_heatmap = ha_df(img, num=num_H)
+    superpoint_heatmap = ha_df(img_npy, num=num_H)
 
     # Save the DF in a hdf5 file
-    out_path = os.path.splitext(os.path.basename(img_path))[0]
-    out_path = os.path.join(output_folder, out_path) + '.hdf5'
-    with h5py.File(out_path, "w") as f:
-        f.create_dataset("superpoint_heatmap", data=superpoint_heatmap)
+    with h5py.File(output_file_path, "a") as f:
+        grp = f.create_group(img_data["name"])
+        grp.create_dataset("superpoint_heatmap", data=superpoint_heatmap)
 
 
-def export_ha(images_list, output_folder, num_H, n_jobs):
-    # Parse the data
-    with open(images_list, 'r') as f:
-        image_files = f.readlines()
-    image_files = [path.strip('\n') for path in image_files]
-
+def export_ha(data_loader, output_file_path, num_H, n_jobs):
     multiprocessing.set_start_method('spawn')
-
     # Process each image in parallel
-    Parallel(n_jobs=n_jobs, backend='multiprocessing')(delayed(process_image)(
-        img_path, None, num_H, output_folder)
-                                                       for img_path in tqdm(image_files, total=len(image_files)))
+    Parallel(n_jobs=n_jobs, backend='multiprocessing')(
+        delayed(process_image)(img_data, num_H, output_file_path) for img_data in tqdm(data_loader, total=len(data_loader)))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('images_list', type=str, help='Path to a txt file containing the image paths.')
-    parser.add_argument('output_folder', type=str, help='Output folder.')
+    parser.add_argument('--output_folder', type=str, help='Output folder.', default="superpoint_gt")
     parser.add_argument('--num_H', type=int, default=100, help='Number of homographies used during HA.')
-    parser.add_argument('--random_contrast', action='store_true',
-                        help='Add random contrast to the images (disabled by default).')
-    parser.add_argument('--n_jobs', type=int, default=5, help='Number of jobs to run in parallel.')
+    parser.add_argument('--n_jobs', type=int, default=1, help='Number of jobs to run in parallel.')
     args = parser.parse_args()
 
-    print("IMAGE LIST: ", args.images_list)
-    print("OUTPUT FOLDER: ", args.output_folder)
-    print("NUM H: ", args.num_H)
+    out_path = EVAL_PATH / args.output_folder / "predictions_{0}.hdf5".format(
+        datetime.now().strftime("%Y%m%d_%H%M%S"))
+
+    print("OUTPUT PATH: ", out_path)
+    print("NUMBER OF HOMOGRAPHIES: ", args.num_H)
     print("N JOBS: ", args.n_jobs)
 
-    export_ha(args.images_list, args.output_folder, args.num_H, args.n_jobs)
+    dataloader = get_dataset_and_loader(args.n_jobs)
+    export_ha(dataloader, out_path, args.num_H, args.n_jobs)
     print("Done !")
