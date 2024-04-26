@@ -1,10 +1,11 @@
 """
-Run the homography adaptation for all images in a given folder
-to generate ground truth heatmap using superpoint.
+Run the homography adaptation with Superpoint for all images in the minidepth dataset.
+Goal: create groundtruth with superpoint. Format: stores groundtruth for every image in a separate file.
 """
 
 import argparse
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import cv2
@@ -143,7 +144,7 @@ def ha_df(img, num=100):
     return median_scores_non_zero
 
 
-def process_image(img_data, num_H, output_file_path):
+def process_image(img_data, num_H, output_folder_path):
     img = img_data["image"]  # B x C x H x W
     img_npy = img.numpy()
     img_npy = img_npy[0, :, :, :]
@@ -152,19 +153,19 @@ def process_image(img_data, num_H, output_file_path):
     superpoint_heatmap = ha_df(img_npy, num=num_H)
 
     assert len(img_data["name"]) == 1  # Currently expect batch size one!
-    lock = multiprocessing.Lock()
+    # store gt in same structure as images of minidepth
+    complete_out_folder = (output_folder_path / str(img_data["name"][0])).parent
+    output_file_path = complete_out_folder / f"{Path(img_data['name'][0]).name.split(".")[0]}.hdf5"
+    complete_out_folder.mkdir(exist_ok=True)
     # Save the DF in a hdf5 file
-    with lock:
-        with h5py.File(output_file_path, "a") as f:
-            grp = f.create_group(img_data["name"][0])
-            grp.create_dataset("superpoint_heatmap", data=superpoint_heatmap)
+    with h5py.File(output_file_path, "w") as f:
+        f.create_dataset("superpoint_heatmap", data=superpoint_heatmap)
 
 
-def export_ha(data_loader, output_file_path, num_H, n_jobs):
-    #multiprocessing.set_start_method('spawn')
+def export_ha(data_loader, output_folder_path, num_H, n_jobs):
     # Process each image in parallel
     Parallel(n_jobs=n_jobs, backend='multiprocessing')(
-        delayed(process_image)(img_data, num_H, output_file_path) for img_data in
+        delayed(process_image)(img_data, num_H, output_folder_path) for img_data in
         tqdm(data_loader, total=len(data_loader)))
 
 
@@ -177,15 +178,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     out_folder_path = EVAL_PATH / args.output_folder
-    out_path = out_folder_path / "predictions_{0}.hdf5".format(
-        datetime.now().strftime("%Y%m%d_%H%M%S"))
     out_folder_path.mkdir(exist_ok=True, parents=True)
 
-    print("OUTPUT PATH: ", out_path)
+    print("OUTPUT PATH: ", out_folder_path)
     print("NUMBER OF HOMOGRAPHIES: ", args.num_H)
     print("N JOBS: ", args.n_jobs)
     print("N DATALOADER JOBS: ", args.n_jobs_dataloader)
 
     dataloader = get_dataset_and_loader(args.n_jobs_dataloader)
-    export_ha(dataloader, out_path, args.num_H, args.n_jobs)
+    export_ha(dataloader, out_folder_path, args.num_H, args.n_jobs)
     print("Done !")
