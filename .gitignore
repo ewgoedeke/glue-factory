@@ -16,3 +16,5 @@ __pycache__
 =======
 *.hdf5
 >>>>>>> 301310d (update)
+*.ipynb
+image_list100.txt
