@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 
 conf = {
     "patch_shape": [800, 800],
-    "difficulty": 0.8,
+    "difficulty": 0.6,
     "translation": 1.0,
     "n_angles": 10,
     "max_angle": 60,
@@ -40,7 +40,7 @@ conf = {
 sp_conf = {
     "max_num_keypoints": None,
     "nms_radius": 4,
-    "detection_threshold": 0.0004,
+    "detection_threshold": 0.00005,
     "remove_borders": 4,
     "descriptor_dim": 256,
     "channels": [64, 64, 128, 128, 256],
