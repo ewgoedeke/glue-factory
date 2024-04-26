@@ -155,8 +155,9 @@ def process_image(img_data, num_H, output_folder_path):
     assert len(img_data["name"]) == 1  # Currently expect batch size one!
     # store gt in same structure as images of minidepth
     complete_out_folder = (output_folder_path / str(img_data["name"][0])).parent
+    complete_out_folder.mkdir(parents=True, exist_ok=True)
     output_file_path = complete_out_folder / f"{Path(img_data['name'][0]).name.split('.')[0]}.hdf5"
-    complete_out_folder.mkdir(exist_ok=True)
+    
     # Save the DF in a hdf5 file
     with h5py.File(output_file_path, "w") as f:
         f.create_dataset("superpoint_heatmap", data=superpoint_heatmap)
