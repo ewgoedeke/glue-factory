@@ -174,7 +174,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--output_folder', type=str, help='Output folder.', default="superpoint_gt")
     parser.add_argument('--num_H', type=int, default=100, help='Number of homographies used during HA.')
-    parser.add_argument('--n_jobs', type=int, default=1, help='Number of jobs to run in parallel.')
+    parser.add_argument('--n_jobs', type=int, default=3, help='Number of jobs (that perform HA) to run in parallel.')
+    parser.add_argument('--n_jobs_dataloader', type=int, default=1, help='Number of jobs the dataloader uses to load images')
     args = parser.parse_args()
 
     out_folder_path = EVAL_PATH / args.output_folder
@@ -185,7 +186,8 @@ if __name__ == "__main__":
     print("OUTPUT PATH: ", out_path)
     print("NUMBER OF HOMOGRAPHIES: ", args.num_H)
     print("N JOBS: ", args.n_jobs)
+    print("N DATALOADER JOBS: ", args.n_jobs_dataloader)
 
-    dataloader = get_dataset_and_loader(args.n_jobs)  # todo: specify different from num overall jobs?
+    dataloader = get_dataset_and_loader(args.n_jobs_dataloader)
     export_ha(dataloader, out_path, args.num_H, args.n_jobs)
     print("Done !")

@@ -67,7 +67,7 @@ class MiniDepthDataset(BaseDataset):
         if tmp_dir.exists():
             shutil.rmtree(tmp_dir)
         tmp_dir.mkdir(exist_ok=True, parents=True)
-        url_base = "https://filedn.com/lt6zb4ORSwapNyVniJf1Pqh"
+        url_base = "https://filedn.com/lt6zb4ORSwapNyVniJf1Pqh/"
         zip_name = "minidepth.zip"
         zip_path = tmp_dir / zip_name
         torch.hub.download_url_to_file(url_base + zip_name, zip_path)
