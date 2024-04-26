@@ -15,12 +15,10 @@ from tqdm import tqdm
 from joblib import Parallel, delayed
 import multiprocessing
 
-<<<<<<< HEAD
+
 from gluefactory.settings import EVAL_PATH
 from gluefactory.datasets import get_dataset
-=======
-from gluefactory.models.base_model import BaseModel
->>>>>>> 301310d (update)
+
 from gluefactory.models.extractors.superpoint_open import SuperPoint
 from gluefactory.geometry.homography import sample_homography_corners
 from gluefactory.utils.image import numpy_image_to_torch
@@ -108,12 +106,8 @@ def ha_df(img, num=100):
     model.eval().to(device)
 
     with torch.no_grad():
-<<<<<<< HEAD
-=======
         # generate keypoints for validation
-        pred = model({"image": numpy_image_to_torch(img)[None].to(device)})
-        
->>>>>>> 301310d (update)
+
         # iterate over num homographies
         for i in range(num):
 
@@ -170,7 +164,7 @@ def process_image(img_data, num_H, output_file_path):
 
 
 def export_ha(data_loader, output_file_path, num_H, n_jobs):
-    #multiprocessing.set_start_method('spawn')
+    multiprocessing.set_start_method('spawn')
     # Process each image in parallel
     Parallel(n_jobs=n_jobs, backend='multiprocessing')(
         delayed(process_image)(img_data, num_H, output_file_path) for img_data in
