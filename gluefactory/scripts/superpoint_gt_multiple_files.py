@@ -25,12 +25,9 @@ from gluefactory.utils.image import numpy_image_to_torch
 from gluefactory.geometry.homography import warp_points
 
 
-import matplotlib.pyplot as plt
-
-
 conf = {
     "patch_shape": [800, 800],
-    "difficulty": 0.6,
+    "difficulty": 0.8,
     "translation": 1.0,
     "n_angles": 10,
     "max_angle": 60,
@@ -40,7 +37,7 @@ conf = {
 sp_conf = {
     "max_num_keypoints": None,
     "nms_radius": 4,
-    "detection_threshold": 0.00005,
+    "detection_threshold": 0.005,
     "remove_borders": 4,
     "descriptor_dim": 256,
     "channels": [64, 64, 128, 128, 256],
@@ -103,6 +100,7 @@ def ha_df(img, num=100):
     h, w = img.shape[:2]
 
     aggregated_heatmap = np.zeros((w, h, num), dtype=np.float32)
+    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     model = SuperPoint(sp_conf).to(device)
@@ -138,9 +136,6 @@ def ha_df(img, num=100):
         aggregated_heatmap_nan[~mask] = np.nan
 
         median_scores_non_zero = np.nanmedian(aggregated_heatmap_nan, axis=2)
-    plt.figure(figsize=(20,20))
-    plt.imshow(median_scores_non_zero, cmap='viridis', interpolation='nearest', alpha=0.5)
-        
 
     return median_scores_non_zero
 
@@ -151,7 +146,10 @@ def process_image(img_data, num_H, output_folder_path):
     img_npy = img_npy[0, :, :, :]
     img_npy = np.transpose(img_npy, (1, 2, 0))  # H x W x C
     # Run homography adaptation
-    superpoint_heatmap = ha_df(img_npy, num=num_H)
+    
+    # convert to superpoint format: img_npy to 0-255, uint8 and h * w
+    sp_image = (img_npy[:, :, 0] * 255).astype(np.uint8)
+    superpoint_heatmap = ha_df(sp_image, num=num_H)
 
     assert len(img_data["name"]) == 1  # Currently expect batch size one!
     # store gt in same structure as images of minidepth
