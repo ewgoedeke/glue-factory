@@ -4,7 +4,6 @@ Goal: create groundtruth with superpoint. Format: stores groundtruth for every i
 """
 
 import argparse
-from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -14,7 +13,6 @@ import torch
 from omegaconf import OmegaConf
 from tqdm import tqdm
 from joblib import Parallel, delayed
-import multiprocessing
 
 from gluefactory.settings import EVAL_PATH
 from gluefactory.datasets import get_dataset
@@ -174,7 +172,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--output_folder', type=str, help='Output folder.', default="superpoint_gt")
     parser.add_argument('--num_H', type=int, default=100, help='Number of homographies used during HA.')
-    parser.add_argument('--n_jobs', type=int, default=3, help='Number of jobs (that perform HA) to run in parallel.')
+    parser.add_argument('--n_jobs', type=int, default=2, help='Number of jobs (that perform HA) to run in parallel.')
     parser.add_argument('--n_jobs_dataloader', type=int, default=1, help='Number of jobs the dataloader uses to load images')
     args = parser.parse_args()
 
