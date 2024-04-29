@@ -79,17 +79,21 @@ def generate_ground_truth_with_homography_adaptation(img, net: DeepLSD, num_H=10
         angles = torch.cat([angles, angle], dim=0)
         offsets = torch.cat([offsets, offset], dim=0)
         counts = torch.cat([counts, count], dim=0)
-
+    
+    dfs = dfs.cpu()
+    angles = angles.cpu()
+    offsets = offsets.cpu()
+    counts = counts.cpu()
     # Aggregate the results
     if aggregation == 'mean':
-        df = (dfs * counts).sum(dim=0) / counts.sum(dim=0)
-        offset = ((offsets * counts.unsqueeze(-1)).sum(dim=0)
+        dfs = (dfs * counts).sum(dim=0) / counts.sum(dim=0)
+        offsets = ((offsets * counts.unsqueeze(-1)).sum(dim=0)
                   / counts.sum(dim=0).unsqueeze(-1))
     elif aggregation == 'median':
-        df[counts == 0] = np.nan
-        df = np.nanmedian(df, axis=0)
-        offset[counts == 0] = np.nan
-        offset = np.nanmedian(offset, axis=0)
+        dfs[counts == 0] = np.nan
+        dfs = np.nanmedian(dfs, axis=0)
+        offsets[counts == 0] = np.nan
+        offsets = np.nanmedian(offsets, axis=0)
         # df = masked_median(dfs, counts)
         # offset = masked_median(offsets, counts[..., None].repeat(1, 1, 1, 2))
     else:
@@ -110,7 +114,7 @@ def generate_ground_truth_with_homography_adaptation(img, net: DeepLSD, num_H=10
     angles = torch.remainder(torch.nanmedian(angles, dim=0)[0],
                             np.pi).reshape(h, w)
 
-    return df, angles, offset
+    return dfs, angles, offsets
 
 
 def warp_points(points, H):
