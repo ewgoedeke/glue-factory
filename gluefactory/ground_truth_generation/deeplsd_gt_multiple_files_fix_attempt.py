@@ -5,17 +5,15 @@ Goal: create groundtruth with DeepLSD. Format: stores groundtruth for every imag
 
 import argparse
 from pathlib import Path
+from ctypes import c_char_p
 
 import h5py
-import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from omegaconf import OmegaConf
 from torch.utils.data import DistributedSampler, DataLoader
-from tqdm import tqdm
 import os
-from multiprocessing import Value
-
+from multiprocessing import Value, Manager, Array
 
 from gluefactory.settings import EVAL_PATH, DATA_PATH
 from gluefactory.datasets import get_dataset
@@ -95,10 +93,10 @@ def process_image(img_data, net, num_H, output_folder_path, device):
 def export_ha(output_folder_path, num_H, n_gpus, image_name_list_filepath):
     if n_gpus > 1:
         lock = mp.Lock()
-        shared_out_folder_path = Value("out_folder_path", str(output_folder_path))
-        shared_numH = Value("num_H", int(num_H))
-        shared_img_name_list = Value("img_name_list_filepath", image_name_list_filepath)
-        shared_nGPUs = Value("nGPUs", n_gpus)
+        shared_out_folder_path = Array("c", str(output_folder_path).encode())
+        shared_numH = Value("i", int(num_H))
+        shared_img_name_list = Array("c", str(image_name_list_filepath).encode())
+        shared_nGPUs = Value("i", n_gpus)
         # mp.spawn will induce the rank as argument
         mp.spawn(export_ha_parallel, args=(shared_nGPUs, shared_out_folder_path, shared_numH, shared_img_name_list, lock), nprocs=n_gpus,
                  join=True)
@@ -110,16 +108,16 @@ def export_ha_parallel(rank, world_size, output_folder_path, num_H, image_name_l
     dist.init_process_group("nccl", rank=rank, world_size=world_size.value)
     data_loader = get_dataset_and_loader(0, rank, world_size.value)  # creates distributed dataloader for each process
     device = f"cuda:{rank}"
-    with open(image_name_list_filepath.value, "r") as f:
+    with open(image_name_list_filepath.value.decode(), "r") as f:
         image_list = f.readlines()
     image_list = [elem[:-1] for elem in image_list]
     net = DeepLSD({}).to(device)
     for img_data in data_loader:
         if img_data["name"][0] in image_list:
             continue
-        process_image(img_data, net, num_H.value, output_folder_path.value, device)
+        process_image(img_data, net, num_H.value, output_folder_path.value.decode(), device)
         lock.acquire()
-        with open(image_name_list_filepath.value, "a") as f:
+        with open(image_name_list_filepath.value.decode(), "a") as f:
             f.write(img_data["name"][0] + "\n")
         lock.release()
 
