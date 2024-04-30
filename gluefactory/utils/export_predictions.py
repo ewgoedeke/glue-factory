@@ -30,15 +30,9 @@ def export_predictions(
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device).eval()
     for data_ in tqdm(loader):
-        #print("Batch: ") todo remove debug prints in final version
-        #for k, v in data_.items():
-        #    print(f"{k}:  {type(v)}")
-        #print(data_["image_size"])
         data = batch_to_device(data_, device,
-                               non_blocking=True)  # todo: batch dimension is missing when using batchsize 1 + cannot load more than bs 1
+                               non_blocking=True)
         # add temporary fix (add batch dimension & to-float)
-        #data['image'] = data['image'].unsqueeze(0).to(device).float()
-        #print("SHAPE: ", data['image'].shape)
         pred = model(data)
         if callback_fn is not None:
             pred = {**callback_fn(pred, data), **pred}
@@ -78,7 +72,6 @@ def export_predictions(
                     pred[k] = pred[k].astype(np.float16)
         try:
             name = data["name"]  #[0] # todo use relative name/path
-            print(name)
             grp = hfile.create_group(name)
             for k, v in pred.items():
                 grp.create_dataset(k, data=v)
