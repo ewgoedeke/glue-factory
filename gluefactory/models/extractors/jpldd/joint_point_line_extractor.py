@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import logging
 
 from omegaconf import OmegaConf
 
@@ -12,6 +13,7 @@ from gluefactory.models.extractors.jpldd.utils import InputPadder, change_dict_k
 
 to_ctr = OmegaConf.to_container  # convert DictConfig to dict
 checkpoint_url = "https://github.com/Shiaoming/ALIKED/raw/main/models/{}.pth"
+logger = logging.getLogger(__file__)
 
 
 class JointPointLineDetectorDescriptor(BaseModel):
@@ -24,9 +26,10 @@ class JointPointLineDetectorDescriptor(BaseModel):
         "force_num_keypoints": False,
         "pretrained": True,
         "nms_radius": 2,
+        "timeit": True  # override timeit: False from BaseModel
     }
 
-    n_limit_max = 20000  # taken from ALIKED which gives max num keypoints to detect! ToDo
+    n_limit_max = 20000  # taken from ALIKED which gives max num keypoints to detect!
 
     line_extractor_cfg = {
         "detect_thresh": 1 / 65,
@@ -96,7 +99,8 @@ class JointPointLineDetectorDescriptor(BaseModel):
         if conf.pretrained:
             old_test_val1 = self.encoder_backbone.conv1.weight.data.clone()
             self.load_pretrained_elements()
-            assert not torch.all(torch.eq(self.encoder_backbone.conv1.weight.data.clone(), old_test_val1)).item() # test if weights really loaded!
+            assert not torch.all(torch.eq(self.encoder_backbone.conv1.weight.data.clone(),
+                                          old_test_val1)).item()  # test if weights really loaded!
 
     # Utility methods for line df and af with deepLSD
     def normalize_df(self, df):
@@ -106,6 +110,12 @@ class JointPointLineDetectorDescriptor(BaseModel):
         return torch.exp(-df_norm) * self.conf.line_neighborhood
 
     def _forward(self, data):
+        """
+        Perform a forward pass. Certain things are only executed NOT in training mode.
+        """
+        # output container definition
+        output = {}
+
         # load image and padder
         image = data["image"]
         div_by = 2 ** 5
@@ -116,51 +126,63 @@ class JointPointLineDetectorDescriptor(BaseModel):
         score_map_padded = self.keypoint_and_junction_branch(feature_map_padded)
         feature_map_padded_normalized = torch.nn.functional.normalize(feature_map_padded, p=2, dim=1)
         feature_map = padder.unpad(feature_map_padded_normalized)
-        print(
+        logger.debug(
             f"Image size: {image.shape}\nFeatureMap-unpadded: {feature_map.shape}\nFeatureMap-padded: {feature_map_padded.shape}")
         assert (feature_map.shape[2], feature_map.shape[3]) == (image.shape[2], image.shape[3])
         keypoint_and_junction_score_map = padder.unpad(score_map_padded)
+        output["keypoint_and_junction_score_map"] = keypoint_and_junction_score_map  # B x 1 x H x W
 
         # Line Elements
         line_angle_field = self.angle_field_branch(feature_map)
         line_distance_field = self.distance_field_branch(feature_map)
+        output["line_anglefield"] = line_angle_field
+        output["line_distancefield"] = line_distance_field
 
         keypoints, kptscores, scoredispersitys = self.dkd(
             keypoint_and_junction_score_map, image_size=data.get("image_size")
             # ToDo: image_size in data, not enough to get from image itself?? (maybe before transformation)
         )
-
-        # DKD gives list with Tensor containing Keypoints, convert to tensor
-        junct = torch.stack(keypoints, dim=0)
-
-        # ToDo: Implement/Find good line extraction based on junctions, af, df
-        # line_map, junctions, heatmap = self.line_extractor(junct, line_heatmap)
-        # line_segments = line_map_to_segments(junctions, line_map)
-        line_segments = None
-
-        keypoint_descriptors, offsets = self.descriptor_branch(feature_map, keypoints)
-        # TODO: can we make sure endpoints are always keypoints?! + Fix Input to this function
-        # line_descriptors = self.line_descriptor(line_segments[0], line_segments[1], 0.5)
-        line_descriptors = None
-
         _, _, h, w = image.shape
         wh = torch.tensor([w, h], device=image.device)
         # no padding required,
         # we can set detection_threshold=-1 and conf.max_num_keypoints
-        return {
-            "keypoints": wh * (torch.stack(keypoints) + 1) / 2.0,  # B N 2
-            "keypoint_descriptors": torch.stack(keypoint_descriptors),  # B N D
-            "keypoint_scores": torch.stack(kptscores),  # B N
-            "score_dispersity": torch.stack(scoredispersitys),
-            "keypoint_and_junction_score_map": keypoint_and_junction_score_map,  # B x 1 x H x W
-            "line_anglefield": line_angle_field,
-            "line_distancefield": line_distance_field,
-            #"line_endpoints": line_segments,  # as tuples
-            #"line_descriptors": line_descriptors,  # as vectors
-        }
+        output["keypoints"] = wh * (torch.stack(keypoints) + 1) / 2.0,  # B N 2
+        output["kptscores"] = torch.stack(kptscores),  # B N
+        output["score_dispersity"] = torch.stack(scoredispersitys),
+
+        # DKD gives list with Tensor containing Keypoints, convert to tensor
+        junct = torch.stack(keypoints, dim=0)  # todo: adaptions may be needed after int of line detection
+
+        # Keypoint descriptors
+        keypoint_descriptors, offsets = self.descriptor_branch(feature_map, keypoints)
+        output["keypoint_descriptors"] = torch.stack(keypoint_descriptors)  # B N D
+
+        # Extract Lines from Learned Part of the Network
+        # Only Perform line detection when NOT in training mode
+        if not self.training:
+            line_segments = None  # as endpoints
+            output["line_segments"] = line_segments
+            # Use aliked points sampled from inbetween Line endpoints?
+            line_descriptors = None
+            output["line_descriptors"] = line_descriptors
+
+        return output
 
     def loss(self, pred, data):
-        raise NotImplementedError
+        """
+        perform loss calculation based on prediction and data
+        1. On Keypoint ScoreMap:        L1/L2 Loss / FC-Softmax?
+        2. On Keypoint Descriptors:     L1/L2 loss
+        3. On Line Angle Field:         L1/L2 Loss / FC-Softmax?
+        4. On Line Distance Field:      L1/L2 Loss / FC-Softmax?
+        """
+        keypoint_scoremap_loss = self.l1_loss_fn(data[""], pred[""])
+        # Descriptor Loss: expect aliked descriptors as GT
+        keypoint_descriptor_loss = self.l1_loss_fn(data[""], pred[""])
+        line_af_loss = self.l1_loss_fn(data[""], pred[""])
+        line_df_loss = self.l1_loss_fn(data[""], pred[""])
+        overall_loss = keypoint_scoremap_loss + keypoint_descriptor_loss + line_af_loss + line_df_loss
+        return overall_loss
 
     def load_pretrained_elements(self):
         # Load state-dict of wanted aliked-model
