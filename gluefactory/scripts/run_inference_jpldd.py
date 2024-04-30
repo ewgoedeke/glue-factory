@@ -18,10 +18,10 @@ logger = logging.getLogger(__name__)
 jpldd_keys = ["keypoints",
               "keypoint_descriptors",
               "keypoint_scores",
-              "score_dispersity",
+              "keypoint_score_dispersity",
               "keypoint_and_junction_score_map",
-              "line_anglefield",
-              "line_distancefield",
+              "deeplsd_line_anglefield",
+              "deeplsd_line_distancefield",
               #"line_endpoints",
               #"line_descriptors"
               ]
@@ -34,14 +34,15 @@ def get_dataset_and_loader(num_workers):  # folder where dataset images are plac
         'preprocessing': {
             'resize': [800, 800]
         },
+        'test_batch_size': 2,
         'train_batch_size': 2,  # prefix must match split mode
         'num_workers': num_workers,
-        'split': 'train'  # if implemented by dataset class gives different splits
+        'split': 'test',  # if implemented by dataset class gives different splits
+        'prefetch_factor': None,
     }
     omega_conf = OmegaConf.create(config)
     dataset = get_dataset(omega_conf.name)(omega_conf)
-    loader = dataset.get_data_loader(omega_conf.get('split', 'train'))
-    print(loader.batch_size)
+    loader = dataset.get_data_loader(omega_conf.get('split', 'train'), pinned=True, distributed=False)
     return dataset, loader
 
 
@@ -55,9 +56,9 @@ def get_model_object(model_name):
     return model
 
 
-def run(feature_file, model_name):
+def run(feature_file, model_name, num_workers_dataloader):
     print("Load dataset and create dataloader...")
-    data_loader, dataset = get_dataset_and_loader(num_workers=1)
+    dataset, data_loader = get_dataset_and_loader(num_workers=num_workers_dataloader)
     print(f"Load model: {model_name}")
     model = get_model_object(model_name)
     export_predictions(data_loader, model, feature_file, as_half=True, keys=jpldd_keys)
@@ -65,19 +66,18 @@ def run(feature_file, model_name):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    #parser.add_argument("img_folder_path", type=str)  # path to img folder (ToDo: allow correct dataset class)
     parser.add_argument("model", type=str)  # model to load and export features with
     parser.add_argument("--export_name", type=str, default=time.strftime("%Y%m%d-%H%M%S"))
     parser.add_argument("--num_workers", type=int, default=0)
     args = parser.parse_args()
 
     logger.info("Running Export...")
-    #data_root = Path(DATA_PATH, args.img_folder_path)
+    # export results to one h5 file
     feature_file = Path(DATA_PATH, "exports", args.export_name + ".h5")
     feature_file.parent.mkdir(exist_ok=True, parents=True)
     logger.info(
         f"Export local features for dataset minidepth "
         f"to file {feature_file}"
     )
-    run(feature_file, args.model)
+    run(feature_file, args.model, args.num_workers)
     logger.info("Done!")
