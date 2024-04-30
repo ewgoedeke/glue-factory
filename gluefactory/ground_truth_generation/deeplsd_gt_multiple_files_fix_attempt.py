@@ -8,9 +8,9 @@ from pathlib import Path
 
 import h5py
 import torch
-import torch.distributed as dist
 import torch.multiprocessing as mp
 from omegaconf import OmegaConf
+from torch.utils.data import DistributedSampler, DataLoader
 from tqdm import tqdm
 import os
 
@@ -54,7 +54,7 @@ homography_params = {
 }
 
 
-def get_dataset_and_loader(num_workers, distributed: bool = False):  # folder where dataset images are placed
+def get_dataset_and_loader(num_workers, rank_distributed: int = None, world_size: int = None):  # folder where dataset images are placed
     config = {
         'name': 'minidepth',  # name of dataset class in gluefactory > datasets
         'grayscale': True,  # commented out things -> dataset must also have these keys but has not
@@ -68,7 +68,8 @@ def get_dataset_and_loader(num_workers, distributed: bool = False):  # folder wh
     }
     omega_conf = OmegaConf.create(config)
     dataset = get_dataset(omega_conf.name)(omega_conf)
-    loader = dataset.get_data_loader(omega_conf.get('split', 'test'), shuffle=False, distributed=distributed)
+    sampler = DistributedSampler(dataset, rank=rank_distributed, num_replicas=world_size) if rank_distributed else None
+    loader = DataLoader(dataset, batch_size=config['test_batch_size'], sampler=sampler, num_workers=num_workers, shuffle=False)
     return loader
 
 
@@ -89,23 +90,22 @@ def process_image(img_data, net, num_H, output_folder_path, device):
         f.create_dataset("deeplsd_angle_field", data=angle_field)
 
 
-def export_ha(output_folder_path, num_H, n_gpus, image_name_list):
-    world_size = n_gpus
+def export_ha(output_folder_path, num_H, n_gpus, image_name_list_filepath):
     if n_gpus > 1:
-        mp.spawn(export_ha_parallel, args=(n_gpus, output_folder_path, num_H, image_name_list,), nprocs=n_gpus,
+        lock = mp.Lock()
+        # mp.spawn will induce the rank as argument
+        mp.spawn(export_ha_parallel, args=(n_gpus, str(output_folder_path), num_H, str(image_name_list_filepath), lock), nprocs=n_gpus,
                  join=True)
     else:
-        data_loader = get_dataset_and_loader(args.n_jobs_dataloader, distributed=False)
+        data_loader = get_dataset_and_loader(args.n_jobs_dataloader, None)
         device = 'cuda' if torch.cuda.is_available() and n_gpus > 0 else 'cpu'
-        export_ha_seq(data_loader, output_folder_path, num_H, device, image_name_list)
+        export_ha_seq(data_loader, output_folder_path, num_H, device, image_name_list_filepath)
 
 
-def export_ha_parallel(rank, world_size, output_folder_path, num_H, image_name_list):
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-    print(f"Hello from rank {rank}")
-    data_loader = get_dataset_and_loader(0, distributed=True)
+def export_ha_parallel(rank, world_size, output_folder_path, num_H, image_name_list_filepath, lock):
+    data_loader = get_dataset_and_loader(0, rank, world_size)  # creates distributed dataloader for each process
     device = f"cuda:{rank}"
-    with open(image_name_list, "r") as f:
+    with open(image_name_list_filepath, "r") as f:
         image_list = f.readlines()
     image_list = [elem[:-1] for elem in image_list]
     net = DeepLSD({}).to(device)
@@ -114,8 +114,10 @@ def export_ha_parallel(rank, world_size, output_folder_path, num_H, image_name_l
             print(f"Rank {rank}: Skipping image {img_data['name'][0]} because it already has GT", flush=True)
             continue
         process_image(img_data, net, num_H, output_folder_path, device)
-        with open(image_name_list, "a") as f:
+        lock.acquire()
+        with open(image_name_list_filepath, "a") as f:
             f.write(img_data["name"][0] + "\n")
+        lock.release()
         print(f"Proc {rank} finished gt for image {img_data['name']}", flush=True)
 
 
@@ -143,19 +145,19 @@ if __name__ == "__main__":
     parser.add_argument("--image_name_list", type=str,
                         help="File with list of names of images that have been generated, relative to our team folder")
     args = parser.parse_args()
-    image_name_list = DATA_PATH / args.image_name_list
-    if not os.path.exists(image_name_list):
-        with open(image_name_list, "w"): pass
+    # image name list read/create
+    image_name_list_filepath = DATA_PATH / args.image_name_list
+    if not os.path.exists(image_name_list_filepath):
+        with open(image_name_list_filepath, "w"): pass
+
+    # create outputfolder if not exisitng
     out_folder_path = EVAL_PATH / args.output_folder
     out_folder_path.mkdir(exist_ok=True, parents=True)
-
-    os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
 
     print("OUTPUT PATH: ", out_folder_path)
     print("NUMBER OF HOMOGRAPHIES: ", args.num_H)
     print("N DATALOADER JOBS: ", args.n_jobs_dataloader)
     print("N GPUS: ", args.n_gpus)
 
-    export_ha(out_folder_path, args.num_H, args.n_gpus, image_name_list)
+    export_ha(out_folder_path, args.num_H, args.n_gpus, image_name_list_filepath)
     print("Done !")
