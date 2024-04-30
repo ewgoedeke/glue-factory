@@ -95,7 +95,7 @@ class MiniDepthDataset(BaseDataset):
     def __getitem__(self, idx):
         path = self.image_paths[idx]
         img = self._read_image(self.img_dir / path)
-        data = {"name": str(path), "index": idx,**self.preprocessor(img)}  # add metadata, like transform, image_size etc...
+        data = {"name": str(path),**self.preprocessor(img)}  # add metadata, like transform, image_size etc...
         return data
 
     def __len__(self):

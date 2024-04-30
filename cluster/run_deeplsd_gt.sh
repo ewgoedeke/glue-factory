@@ -4,6 +4,7 @@
 #SBATCH --output=deeplsd_gt.out
 #SBATCH --gpus=4
 #SBATCH --time=1440
+#SBATCH --mem=120000MB
 
 # above timelimit is given in minutes (24h=1440min), STDOUT of the job goes to superpoint_gt.out
 

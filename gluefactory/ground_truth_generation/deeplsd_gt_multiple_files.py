@@ -65,11 +65,12 @@ def get_dataset_and_loader(num_workers,distributed:bool=False):  # folder where 
         },
         'test_batch_size': 1,  # prefix must match split mode
         'num_workers': num_workers,
-        'split': 'test'  # if implemented by dataset class gives different splits
+        'split': 'test',  # if implemented by dataset class gives different splits
+        "prefetch_factor": None if num_workers==0 else 2,
     }
     omega_conf = OmegaConf.create(config)
     dataset = get_dataset(omega_conf.name)(omega_conf)
-    loader = dataset.get_data_loader(omega_conf.get('split', 'test'),shuffle=False,pinned=True,distributed=distributed)
+    loader = dataset.get_data_loader(omega_conf.get('split', 'test'),shuffle=False,distributed=distributed)
     return loader
 
 
@@ -99,29 +100,32 @@ def export_ha(output_folder_path, num_H, n_gpus, image_name_list):
     else:
         data_loader = get_dataset_and_loader(args.n_jobs_dataloader,distributed=False)
         device = 'cuda' if torch.cuda.is_available() and n_gpus > 0 else 'cpu'
-        export_ha_seq(data_loader, output_folder_path, num_H, start_index, device,image_name_list)
+        export_ha_seq(data_loader, output_folder_path, num_H, device,image_name_list)
 
 def export_ha_parallel(rank,world_size, output_folder_path, num_H,image_name_list):
     dist.init_process_group("nccl",rank=rank,world_size=world_size)
     print(f"Hello from rank {rank}")
-    data_loader = get_dataset_and_loader(world_size,distributed=True)
+    data_loader = get_dataset_and_loader(0,distributed=True)
     device = f"cuda:{rank}"
     with open(image_name_list,"r") as f:
         image_list = f.readlines()
+    image_list = [elem[:-1] for elem in image_list]
     net = DeepLSD({}).to(device)
     for img_data in data_loader:
         if img_data["name"][0] in image_list:
             print(f"Rank {rank}: Skipping image {img_data['name'][0]} because it already has GT", flush=True)
+            continue
         process_image(img_data, net, num_H, output_folder_path, device)
         with open(image_name_list,"a") as f:
             f.write(img_data["name"][0] + "\n")
-        print(f"Proc {rank} finished gt for image {int(img_data['index'])} with name {img_data['name']}",flush=True)
+        print(f"Proc {rank} finished gt for image {img_data['name']}",flush=True)
 
 
 def export_ha_seq(data_loader, output_folder_path, num_H, device,image_name_list: str):
     net = DeepLSD({}).to(device)
     with open(image_name_list,"r") as f:
         image_list = f.readlines()
+    image_list = [elem[:-1] for elem in image_list]
     for img_data in tqdm(data_loader, total=len(data_loader)):
         if img_data["name"][0] in image_list:
             print(f"Skipping image {img_data['name'][0]} because it already has GT")
