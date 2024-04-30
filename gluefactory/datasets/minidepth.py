@@ -24,7 +24,7 @@ class MiniDepthDataset(BaseDataset):
         "grayscale": False,
         "train_batch_size": 2,  # prefix must match split
         "test_batch_size": 1,
-        "device": 'cpu',  # specify device to move image data to. If None is given choose gpu if available
+        "device": None,  # specify device to move image data to. if None is given, just read, skip move to device
         "split": "train",
         "seed": 0,
         "preprocessing": {
@@ -32,7 +32,7 @@ class MiniDepthDataset(BaseDataset):
         },
         "load_features": {
             "do": False,
-            "device": "cpu",  # choose device to move groundtruthdata to if None is given, choose gpu if available
+            "device": None,  # choose device to move groundtruthdata to if None is given, just read, skip move to device
             "point_gt": {
                 "path": "outputs/results/superpoint_gt",
                 "data_keys": ["superpoint_heatmap"]
@@ -43,7 +43,6 @@ class MiniDepthDataset(BaseDataset):
             }
         },
     }
-    # todo: to-device?
 
     def _init(self, conf):
         self.grayscale = bool(conf.grayscale)
@@ -100,8 +99,8 @@ class MiniDepthDataset(BaseDataset):
             if img.ndim < 4:
                 img = img.unsqueeze(0)
         assert img.ndim >= 3
-        device = self.conf.device if self.conf.device is not None else ('cuda' if torch.cuda.is_available() else 'cpu')
-        img = img.to(device)
+        if self.conf.device is not None:
+            img = img.to(self.conf.device)
         return img
 
     def _read_groundtruth(self, image_path, enforce_batch_dim=True):
@@ -126,7 +125,9 @@ class MiniDepthDataset(BaseDataset):
         return ground_truth
 
     def __getitem__(self, idx):
-        # todo check batching
+        """
+        Dataloader is usually just returning one datapoint by design. Batching is done in Loader normally.
+        """
         path = self.image_paths[idx]
         img = self._read_image(self.img_dir / path)
         data = {"name": str(path), **self.preprocessor(img)}  # add metadata, like transform, image_size etc...
@@ -134,16 +135,15 @@ class MiniDepthDataset(BaseDataset):
             gt = self._read_groundtruth(path)
             data = {**data, **gt}
         # fix err in dkd todo check together with batching
-        del data['image_size']  # torch.from_numpy(data['image_size'])
+        # del data['image_size']  # torch.from_numpy(data['image_size'])
         return data
 
     def read_datasets_from_h5(self, keys, file):
         data = {}
         for key in keys:
             d = file[key]
-            device = self.conf.load_features.device if self.conf.load_features.device is not None else ( # todo: to device done in loader or later?
-                'cuda' if torch.cuda.is_available() else 'cpu')
-            data[key] = d.to(device)
+            if self.conf.load_features.device is not None:
+                data[key] = d.to(self.conf.load_features.device)
         return data
 
     def __len__(self):
