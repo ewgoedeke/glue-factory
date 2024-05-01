@@ -10,9 +10,7 @@ Tests:
 """
 
 import argparse
-import time
 import logging
-from pathlib import Path
 
 import torch
 from omegaconf import OmegaConf
@@ -20,8 +18,6 @@ from tqdm import tqdm
 
 from ..datasets import get_dataset
 from ..models import get_model
-from ..settings import DATA_PATH
-from ..utils.export_predictions import export_predictions
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +54,7 @@ default_train_conf = {
     "pr_curves": {},
     "plot": None,
     "submodules": [],
+    "train_descriptors": True
 }
 train_conf = OmegaConf.create(default_train_conf)
 
@@ -117,14 +114,22 @@ def train(model, dataloader):
         "adam": torch.optim.Adam,
         "adamw": torch.optim.AdamW,
         "rmsprop": torch.optim.RMSprop,
-    }[train_conf.train.optimizer]
+    }[train_conf.optimizer]
     optimizer = optimizer_fn(model.parameters())
-    for batch in tqdm(dataloader):
-        optimizer.zero_grad()
-        pred = model(batch)
-        loss = model.loss(pred, batch)
-        loss.backward()
-        optimizer.step()
+    for i in tqdm(range(train_conf.epochs), desc="Epochs", unit="epoch"):
+        for batch in tqdm(dataloader, desc="Batches", unit="batch"):
+            optimizer.zero_grad()
+            pred = model(batch)
+            img_and_keypoints = {"keypoints": pred["keypoints"], "image": batch["image"]}
+            batch = {**batch, **model.get_groundtruth_descriptors(img_and_keypoints)}
+            losses, _ = model.loss(pred, batch)
+            loss = losses["total"].mean()
+            if torch.isnan(loss).any():
+                print(f"Detected NAN, skipping iteration")
+                del pred, batch, loss, losses
+                continue
+            loss.backward()
+            optimizer.step()
 
 
 if __name__ == "__main__":

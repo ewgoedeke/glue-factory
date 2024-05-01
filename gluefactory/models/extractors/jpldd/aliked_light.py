@@ -481,7 +481,7 @@ class ALIKED_Light(BaseModel):
         },
     }
 
-    required_data_keys = ["image", "keypoint"]
+    required_data_keys = ["image", "keypoints"]
 
     def _init(self, conf):
         if conf.force_num_keypoints:
@@ -576,26 +576,24 @@ class ALIKED_Light(BaseModel):
         x4_up = self.upsample32(x4)  # B x dim//4 x H x W
         x1234 = torch.cat([x1, x2_up, x3_up, x4_up], dim=1)
         # ================================== score head
-        score_map = torch.sigmoid(self.score_head(x1234))
         feature_map = torch.nn.functional.normalize(x1234, p=2, dim=1)
 
         # Unpads images
         feature_map = padder.unpad(feature_map)
-        score_map = padder.unpad(score_map)
 
-        return feature_map, score_map
+        return feature_map
 
     def _forward(self, data):
         image = data["image"]
-        keypoints = data["keypoint"]
-        feature_map, score_map = self.extract_dense_map(image)
+        keypoints = data["keypoints"]
+        feature_map = self.extract_dense_map(image)
         descriptors, offsets = self.desc_head(feature_map, keypoints)
 
         _, _, h, w = image.shape
         # no padding required,
         # we can set detection_threshold=-1 and conf.max_num_keypoints
         return {
-            "descriptors": torch.stack(descriptors),  # B N D
+            "aliked_descriptors": torch.stack(descriptors),  # B N D
         }
 
     def loss(self, pred, data):

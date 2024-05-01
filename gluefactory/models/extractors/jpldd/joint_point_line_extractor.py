@@ -33,8 +33,8 @@ class JointPointLineDetectorDescriptor(BaseModel):
     default_conf = {
         # ToDo: create default conf once everything is running -> default conf is merged with input conf to the init method!
         "model_name": "aliked-n16",
-        "max_num_keypoints": -1,
-        "detection_threshold": 0.2,
+        "max_num_keypoints": 2000,  # setting for training, for eval: -1
+        "detection_threshold": -1,  # setting for training, for eval: 0.2
         "force_num_keypoints": False,
         "pretrained": True,
         "nms_radius": 2,
@@ -42,7 +42,8 @@ class JointPointLineDetectorDescriptor(BaseModel):
         "train_descriptors": {
             "do": True,  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
             "device": None  # device to house the lightweight ALIKED model
-        }
+        },
+        "required_loss_keys": ["superpoint_heatmap"],
     }
 
     n_limit_max = 20000  # taken from ALIKED which gives max num keypoints to detect!
@@ -137,31 +138,30 @@ class JointPointLineDetectorDescriptor(BaseModel):
         logger.debug(
             f"Image size: {image.shape}\nFeatureMap-unpadded: {feature_map.shape}\nFeatureMap-padded: {feature_map_padded.shape}")
         assert (feature_map.shape[2], feature_map.shape[3]) == (image.shape[2], image.shape[3])
-        keypoint_and_junction_score_map = padder.unpad(score_map_padded)
-        output["keypoint_and_junction_score_map"] = keypoint_and_junction_score_map  # B x 1 x H x W
+        keypoint_and_junction_score_map = padder.unpad(score_map_padded)  # B x 1 x H x W
+        output["keypoint_and_junction_score_map"] = keypoint_and_junction_score_map.squeeze()  # B x H x W
 
         # Line Elements
         line_angle_field = self.angle_field_branch(feature_map)
         line_distance_field = self.distance_field_branch(feature_map)
-        output["deeplsd_line_anglefield"] = line_angle_field
-        output["deeplsd_line_distancefield"] = line_distance_field
+        output["deeplsd_line_anglefield"] = line_angle_field.squeeze()  # squeeze to remove size 1 dim to match groundtruth
+        output["deeplsd_line_distancefield"] = line_distance_field.squeeze()
 
         keypoints, kptscores, scoredispersitys = self.dkd(
-            keypoint_and_junction_score_map, #image_size=data.get("image_size")
+            keypoint_and_junction_score_map,
         )
         _, _, h, w = image.shape
         wh = torch.tensor([w, h], device=image.device)
         # no padding required,
-        # we can set detection_threshold=-1 and conf.max_num_keypoints
-        # todo: figure out whether there are issues with the list representation -> cannot expect same num of keypoints
-        output["keypoints"] = renormalize_keypoints(keypoints, wh)  # B N 2 (list of B tensors having N by 2)
-        output["keypoint_scores"] = kptscores  #torch.stack(kptscores),  # B N
-        output["keypoint_score_dispersity"] = scoredispersitys  #torch.stack(scoredispersitys),
+        # we can set detection_threshold=-1 and conf.max_num_keypoints -> HERE WE SET THESE VALUES SO WE CAN EXPECT SAME NUM!
+        output["keypoints"] = wh * (torch.stack(keypoints) + 1) / 2.0  # renormalize_keypoints(keypoints, wh)  # B N 2 (list of B tensors having N by 2)
+        output["keypoint_scores"] = torch.stack(kptscores),  # B N
+        output["keypoint_score_dispersity"] = torch.stack(scoredispersitys),
 
         # Keypoint descriptors
         # todo: figure out whether there are issues with the list representation -> cannot expect same num of keypoints
         keypoint_descriptors, offsets = self.descriptor_branch(feature_map, keypoints)
-        output["keypoint_descriptors"] = keypoint_descriptors # torch.stack(keypoint_descriptors)  # B N D
+        output["keypoint_descriptors"] = torch.stack(keypoint_descriptors)  # B N D
 
         # Extract Lines from Learned Part of the Network
         # Only Perform line detection when NOT in training mode
@@ -176,26 +176,35 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
     def loss(self, pred, data):
         """
-        perform loss calculation based on prediction and data(=groundtruth)
+        perform loss calculation based on prediction and data(=groundtruth) for a batch
         1. On Keypoint-ScoreMap:        L1/L2 Loss / FC-Softmax?
         2. On Keypoint-Descriptors:     L1/L2 loss
         3. On Line-Angle Field:         L1/L2 Loss / FC-Softmax?
         4. On Line-Distance Field:      L1/L2 Loss / FC-Softmax?
         """
+        losses = {}
+        metrics = {}
+
+        # calculate losses and store them into dict
         keypoint_scoremap_loss = F.l1_loss(pred["keypoint_and_junction_score_map"],
                                            data["superpoint_heatmap"], reduction='mean')
+        losses["keypoint_and_junction_score_map"] = keypoint_scoremap_loss
         # Descriptor Loss: expect aliked descriptors as GT
         keypoint_descriptor_loss = F.l1_loss(pred["keypoint_descriptors"], data["aliked_descriptors"], reduction='mean')
+        losses["keypoint_descriptors"] = keypoint_descriptor_loss
         line_af_loss = F.l1_loss(pred["deeplsd_line_anglefield"], data["deeplsd_angle_field"], reduction='mean')
+        losses["deeplsd_line_anglefield"] = line_af_loss
         line_df_loss = F.l1_loss(pred["deeplsd_line_distancefield"], data["deeplsd_distance_field"], reduction='mean')
+        losses["deeplsd_line_distancefield"] = line_df_loss
         overall_loss = keypoint_scoremap_loss + keypoint_descriptor_loss + line_af_loss + line_df_loss
-        return overall_loss
+        losses["total"] = overall_loss
+        return losses, metrics
 
     def get_groundtruth_descriptors(self, pred: dict):
         """
-        Takes keypoints from predictions (best 100 + 100 random) + computes groundtruth descriptors for it.
+        Takes keypoints from predictions (best 100 + 100 random) + computes ground-truth descriptors for it.
         """
-        assert pred.get('image', None) is not None and pred.get('keypoints', None) is not None # todo: check dims
+        assert pred.get('image', None) is not None and pred.get('keypoints', None) is not None  # todo: check dims
         with torch.no_grad():
             descriptors = self.aliked_lw(pred)
         return descriptors
@@ -222,3 +231,9 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
     def count_trainable_parameters(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+    def check_loss_keys_in_dict(self, data_keys):
+        for required_loss_key in self.conf.required_loss_keys:
+            if required_loss_key not in data_keys:
+                return False
+        return True

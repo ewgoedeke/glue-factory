@@ -3,9 +3,9 @@ import zipfile
 from pathlib import Path
 
 import h5py
+import numpy as np
 import torch
 import logging
-
 
 from gluefactory.datasets import BaseDataset
 from gluefactory.models.cache_loader import CacheLoader
@@ -17,7 +17,9 @@ logger = logging.getLogger(__name__)
 
 class MiniDepthDataset(BaseDataset):
     """
-    Assumes minidepth dataset in folder as jpg images
+    Assumes minidepth dataset in folder as jpg images.
+    Supports loading groundtruth and only serves images for that gt exists.
+    Dataset only deals with loading one element. Batching is done by Dataloader!
     """
     default_conf = {
         "data_dir": "minidepth/images",  # as subdirectory of DATA_PATH(defined in settings.py)
@@ -27,11 +29,14 @@ class MiniDepthDataset(BaseDataset):
         "device": None,  # specify device to move image data to. if None is given, just read, skip move to device
         "split": "train",
         "seed": 0,
+        "prefetch_factor": None,
         "preprocessing": {
             'resize': [800, 800]
         },
         "load_features": {
             "do": False,
+            "check_exists": True,
+            "check_nan": False,
             "device": None,  # choose device to move groundtruthdata to if None is given, just read, skip move to device
             "point_gt": {
                 "path": "outputs/results/superpoint_gt",
@@ -71,6 +76,25 @@ class MiniDepthDataset(BaseDataset):
         if conf.load_features.do:
             self.point_gt_location = DATA_PATH / conf.load_features.point_gt.path
             self.line_gt_location = DATA_PATH / conf.load_features.line_gt.path
+            # filter out where missing groundtruth
+            new_img_path_list = []
+            for img_path in self.image_paths:
+                h5_file_name = img_path.with_suffix(".hdf5").name
+                point_gt_file_path = self.point_gt_location / img_path.parent / h5_file_name
+                line_gt_file_path = self.line_gt_location / img_path.parent / h5_file_name
+                # perform sanity checks if wanted
+                flag = True
+                if self.conf.load_features.check_exists or self.conf.load_features.check_nan:
+                    flag = False
+                    if self.conf.load_features.check_exists:
+                        if point_gt_file_path.exists() and line_gt_file_path.exists():
+                            flag = True
+                    if self.conf.load_features.check_nan:
+                        flag = not self.contains_any_gt_nan(img_path)
+                if flag:
+                    new_img_path_list.append(img_path)
+            self.image_paths = new_img_path_list
+            logger.info(f"NUMBER OF IMAGES WITH GT: {len(self.image_paths)}")
 
     def download_minidepth(self):
         logger.info("Downloading the MiniDepth dataset...")
@@ -105,14 +129,15 @@ class MiniDepthDataset(BaseDataset):
 
     def _read_groundtruth(self, image_path, enforce_batch_dim=True):
         """
-        Reads groundtruth for points and lines from respective h5files
+        Reads groundtruth for points and lines from respective h5files.
+        We can assume that gt files are existing at this point->filtered in init!
 
         image_path: path to image as relative to base directory(self.img_path)
         """
         ground_truth = {}
-        point_gt_file_path = self.point_gt_location / image_path
-        line_gt_file_path = self.line_gt_location / image_path
-        assert point_gt_file_path.exists() and line_gt_file_path.exists()
+        h5_file_name = image_path.with_suffix(".hdf5").name
+        point_gt_file_path = self.point_gt_location / image_path.parent / h5_file_name
+        line_gt_file_path = self.line_gt_location / image_path.parent / h5_file_name
         # Read data for points
         with h5py.File(point_gt_file_path, "r") as point_file:
             ground_truth = {**self.read_datasets_from_h5(self.conf.load_features.point_gt.data_keys, point_file),
@@ -121,7 +146,6 @@ class MiniDepthDataset(BaseDataset):
         with h5py.File(line_gt_file_path, "r") as line_file:
             ground_truth = {**self.read_datasets_from_h5(self.conf.load_features.line_gt.data_keys, line_file),
                             **ground_truth}
-        # todo: to tensor / batch handling (is this handled by dataset or loader??)
         return ground_truth
 
     def __getitem__(self, idx):
@@ -134,17 +158,26 @@ class MiniDepthDataset(BaseDataset):
         if self.conf.load_features.do:
             gt = self._read_groundtruth(path)
             data = {**data, **gt}
-        # fix err in dkd todo check together with batching
-        # del data['image_size']  # torch.from_numpy(data['image_size'])
         return data
 
     def read_datasets_from_h5(self, keys, file):
+        # Todo: see if works, else inspire at CacheLoader
         data = {}
         for key in keys:
-            d = file[key]
+            d = torch.from_numpy(
+                np.nan_to_num(file[key].__array__()))  # nan_to_num needed because of weird sp gt format
             if self.conf.load_features.device is not None:
                 data[key] = d.to(self.conf.load_features.device)
+            else:
+                data[key] = d
         return data
+
+    def contains_any_gt_nan(self, img_path):
+        gt = self._read_groundtruth(img_path)
+        for k, v in gt.items():
+            if isinstance(v, torch.Tensor) and torch.iszer(v).any():
+                return True
+        return False
 
     def __len__(self):
         return len(self.image_paths)
