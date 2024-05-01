@@ -93,31 +93,26 @@ def process_image(img_data, net, num_H, output_folder_path, device):
 def export_ha(output_folder_path, num_H, n_gpus, image_name_list_filepath):
     if n_gpus > 1:
         lock = mp.Lock()
-        shared_out_folder_path = Array("c", str(output_folder_path).encode())
-        shared_numH = Value("i", int(num_H))
-        shared_img_name_list = Array("c", str(image_name_list_filepath).encode())
-        shared_nGPUs = Value("i", n_gpus)
-        # mp.spawn will induce the rank as argument
-        mp.spawn(export_ha_parallel, args=(shared_nGPUs, shared_out_folder_path, shared_numH, shared_img_name_list, lock), nprocs=n_gpus,
+        mp.spawn(export_ha_parallel, args=(n_gpus, output_folder_path, num_H, image_name_list_filepath, lock,), nprocs=n_gpus,
                  join=True)
     else:
         raise NotImplementedError
 
 
 def export_ha_parallel(rank, world_size, output_folder_path, num_H, image_name_list_filepath, lock):
-    dist.init_process_group("nccl", rank=rank, world_size=world_size.value)
-    data_loader = get_dataset_and_loader(0, rank, world_size.value)  # creates distributed dataloader for each process
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+    data_loader = get_dataset_and_loader(0, rank, world_size)  # creates distributed dataloader for each process
     device = f"cuda:{rank}"
-    with open(image_name_list_filepath.value.decode(), "r") as f:
+    with open(image_name_list_filepath, "r") as f:
         image_list = f.readlines()
     image_list = [elem[:-1] for elem in image_list]
     net = DeepLSD({}).to(device)
     for img_data in data_loader:
         if img_data["name"][0] in image_list:
             continue
-        process_image(img_data, net, num_H.value, output_folder_path.value.decode(), device)
+        process_image(img_data, net, num_H, output_folder_path, device)
         lock.acquire()
-        with open(image_name_list_filepath.value.decode(), "a") as f:
+        with open(image_name_list_filepath, "a") as f:
             f.write(img_data["name"][0] + "\n")
         lock.release()
 
@@ -140,6 +135,9 @@ if __name__ == "__main__":
     # create outputfolder if not exisitng
     out_folder_path = EVAL_PATH / args.output_folder
     out_folder_path.mkdir(exist_ok=True, parents=True)
+
+    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_PORT'] = '12355'
 
     print("OUTPUT PATH: ", out_folder_path)
     print("NUMBER OF HOMOGRAPHIES: ", args.num_H)

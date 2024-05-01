@@ -80,20 +80,20 @@ def generate_ground_truth_with_homography_adaptation(img, net: DeepLSD, num_H=10
         offsets = torch.cat([offsets, offset], dim=0)
         counts = torch.cat([counts, count], dim=0)
     
-    dfs = dfs.cpu()
-    angles = angles.cpu()
-    offsets = offsets.cpu()
-    counts = counts.cpu()
+    # dfs = dfs.cpu()
+    # angles = angles.cpu()
+    # offsets = offsets.cpu()
+    # counts = counts.cpu()
     # Aggregate the results
     if aggregation == 'mean':
-        dfs = (dfs * counts).sum(dim=0) / counts.sum(dim=0)
-        offsets = ((offsets * counts.unsqueeze(-1)).sum(dim=0)
+        df = (dfs * counts).sum(dim=0) / counts.sum(dim=0)
+        offset = ((offsets * counts.unsqueeze(-1)).sum(dim=0)
                   / counts.sum(dim=0).unsqueeze(-1))
     elif aggregation == 'median':
-        dfs[counts == 0] = np.nan
-        dfs = np.nanmedian(dfs, axis=0)
-        offsets[counts == 0] = np.nan
-        offsets = np.nanmedian(offsets, axis=0)
+        dfs[counts == 0] = float("nan")
+        df = torch.nanmedian(dfs, dim=0)[0]
+        offsets[counts == 0] = float("nan")
+        offset = torch.nanmedian(offsets, dim=0)[0]
         # df = masked_median(dfs, counts)
         # offset = masked_median(offsets, counts[..., None].repeat(1, 1, 1, 2))
     else:
@@ -110,11 +110,11 @@ def generate_ground_truth_with_homography_adaptation(img, net: DeepLSD, num_H=10
         torch.zeros_like(angles[:, circ_bound]))
     # angle = torch.remainder(masked_median(angles, counts),
     #                         np.pi).reshape(h, w)
-    angles[counts == 0] = np.nan
-    angles = torch.remainder(torch.nanmedian(angles, dim=0)[0],
+    angles[counts == 0] = float("nan")
+    angle = torch.remainder(torch.nanmedian(angles, dim=0)[0],
                             np.pi).reshape(h, w)
-
-    return dfs, angles, offsets
+    del angles,counts,dfs,offsets
+    return df, angle, offset
 
 
 def warp_points(points, H):

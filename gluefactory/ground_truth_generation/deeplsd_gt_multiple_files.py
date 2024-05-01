@@ -13,6 +13,7 @@ import torch.multiprocessing as mp
 from omegaconf import OmegaConf
 from tqdm import tqdm
 import os
+from multiprocessing import Lock
 
 
 from gluefactory.settings import EVAL_PATH, DATA_PATH
@@ -82,17 +83,17 @@ def process_image(img_data, net, num_H, output_folder_path, device):
     complete_out_folder = (output_folder_path / img_name).parent
     complete_out_folder.mkdir(parents=True, exist_ok=True)
     output_file_path = complete_out_folder / f"{Path(img_name).name.split('.')[0]}.hdf5"
-
     # Save the DF in a hdf5 file
     with h5py.File(output_file_path, "w") as f:
         f.create_dataset("deeplsd_distance_field", data=distance_field)
         f.create_dataset("deeplsd_angle_field", data=angle_field)
+    del distance_field,angle_field
 
 
 def export_ha(output_folder_path, num_H, n_gpus, image_name_list):
-    world_size = n_gpus
     if n_gpus > 1:
-        mp.spawn(export_ha_parallel, args=(n_gpus, output_folder_path, num_H, image_name_list,), nprocs=n_gpus,
+        lock = Lock()
+        mp.spawn(export_ha_parallel, args=(n_gpus, output_folder_path, num_H, image_name_list,lock,), nprocs=n_gpus,
                  join=True)
     else:
         data_loader = get_dataset_and_loader(args.n_jobs_dataloader, distributed=False)
@@ -100,7 +101,7 @@ def export_ha(output_folder_path, num_H, n_gpus, image_name_list):
         export_ha_seq(data_loader, output_folder_path, num_H, device, image_name_list)
 
 
-def export_ha_parallel(rank, world_size, output_folder_path, num_H, image_name_list):
+def export_ha_parallel(rank, world_size, output_folder_path, num_H, image_name_list, lock):
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     print(f"Hello from rank {rank}")
     data_loader = get_dataset_and_loader(0, distributed=True)
@@ -114,8 +115,10 @@ def export_ha_parallel(rank, world_size, output_folder_path, num_H, image_name_l
             print(f"Rank {rank}: Skipping image {img_data['name'][0]} because it already has GT", flush=True)
             continue
         process_image(img_data, net, num_H, output_folder_path, device)
+        lock.acquire()
         with open(image_name_list, "a") as f:
             f.write(img_data["name"][0] + "\n")
+        lock.release()
         print(f"Proc {rank} finished gt for image {img_data['name']}", flush=True)
 
 
@@ -124,13 +127,16 @@ def export_ha_seq(data_loader, output_folder_path, num_H, device, image_name_lis
     with open(image_name_list, "r") as f:
         image_list = f.readlines()
     image_list = [elem[:-1] for elem in image_list]
-    for img_data in tqdm(data_loader, total=len(data_loader)):
+    for img_data in data_loader:
         if img_data["name"][0] in image_list:
-            print(f"Skipping image {img_data['name'][0]} because it already has GT")
+            print(f"Skipping image {img_data['name'][0]} because it already has GT",flush=True)
             continue
+        # for i in range(50):
+        #     print(f"Processing image for {i+1}th time",flush=True)
         process_image(img_data, net, num_H, output_folder_path, device)
         with open(image_name_list, "a") as f:
-            f.write(img_data["name"][0] + "\n")
+           f.write(img_data["name"][0] + "\n")
+        print(f"Finished gt for image {img_data['name']}",flush=True)
 
 
 if __name__ == "__main__":
