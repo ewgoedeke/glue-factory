@@ -13,7 +13,7 @@ import torch.multiprocessing as mp
 from omegaconf import OmegaConf
 from tqdm import tqdm
 import os
-from multiprocessing import Lock
+import multiprocessing
 
 
 from gluefactory.settings import EVAL_PATH, DATA_PATH
@@ -76,7 +76,7 @@ def get_dataset_and_loader(num_workers, distributed: bool = False):  # folder wh
 def process_image(img_data, net, num_H, output_folder_path, device):
     img = img_data["image"].to(device)  # B x C x H x W
     # Run homography adaptation
-    distance_field, angle_field, _ = generate_ground_truth_with_homography_adaptation(img, net, num_H=num_H, bs=8)
+    distance_field, angle_field, _ = generate_ground_truth_with_homography_adaptation(img, net, num_H=num_H, bs=6)
     assert len(img_data["name"]) == 1, f"Image data name is {img_data['name']}"  # Currently expect batch size one!
     # store gt in same structure as images of minidepth
     img_name = img_data["name"][0]
@@ -84,15 +84,18 @@ def process_image(img_data, net, num_H, output_folder_path, device):
     complete_out_folder.mkdir(parents=True, exist_ok=True)
     output_file_path = complete_out_folder / f"{Path(img_name).name.split('.')[0]}.hdf5"
     # Save the DF in a hdf5 file
+    distance_field = distance_field.cpu()
+    angle_field = angle_field.cpu()
     with h5py.File(output_file_path, "w") as f:
-        f.create_dataset("deeplsd_distance_field", data=distance_field)
-        f.create_dataset("deeplsd_angle_field", data=angle_field)
+       f.create_dataset("deeplsd_distance_field", data=distance_field)
+       f.create_dataset("deeplsd_angle_field", data=angle_field)
     del distance_field,angle_field
 
 
 def export_ha(output_folder_path, num_H, n_gpus, image_name_list):
     if n_gpus > 1:
-        lock = Lock()
+        mpmanager = multiprocessing.Manager()
+        lock = mpmanager.Lock()
         mp.spawn(export_ha_parallel, args=(n_gpus, output_folder_path, num_H, image_name_list,lock,), nprocs=n_gpus,
                  join=True)
     else:
@@ -110,16 +113,18 @@ def export_ha_parallel(rank, world_size, output_folder_path, num_H, image_name_l
         image_list = f.readlines()
     image_list = [elem[:-1] for elem in image_list]
     net = DeepLSD({}).to(device)
+    index = rank
     for img_data in data_loader:
         if img_data["name"][0] in image_list:
-            print(f"Rank {rank}: Skipping image {img_data['name'][0]} because it already has GT", flush=True)
-            continue
+          print(f"Rank {rank}: Skipping image {img_data['name'][0]} because it already has GT", flush=True)
+          continue
         process_image(img_data, net, num_H, output_folder_path, device)
         lock.acquire()
         with open(image_name_list, "a") as f:
-            f.write(img_data["name"][0] + "\n")
+          f.write(img_data["name"][0] + "\n")
         lock.release()
-        print(f"Proc {rank} finished gt for image {img_data['name']}", flush=True)
+        index+=world_size
+        print(f"Proc {rank} finished gt {index} for image {img_data['name']}", flush=True)
 
 
 def export_ha_seq(data_loader, output_folder_path, num_H, device, image_name_list: str):
@@ -127,16 +132,16 @@ def export_ha_seq(data_loader, output_folder_path, num_H, device, image_name_lis
     with open(image_name_list, "r") as f:
         image_list = f.readlines()
     image_list = [elem[:-1] for elem in image_list]
+    index = 0
     for img_data in data_loader:
         if img_data["name"][0] in image_list:
-            print(f"Skipping image {img_data['name'][0]} because it already has GT",flush=True)
-            continue
-        # for i in range(50):
-        #     print(f"Processing image for {i+1}th time",flush=True)
+           print(f"Skipping image {img_data['name'][0]} because it already has GT",flush=True)
+           continue
         process_image(img_data, net, num_H, output_folder_path, device)
         with open(image_name_list, "a") as f:
-           f.write(img_data["name"][0] + "\n")
-        print(f"Finished gt for image {img_data['name']}",flush=True)
+          f.write(img_data["name"][0] + "\n")
+        index += 1
+        print(f"Finished gt {index} for image {img_data['name']}",flush=True)
 
 
 if __name__ == "__main__":

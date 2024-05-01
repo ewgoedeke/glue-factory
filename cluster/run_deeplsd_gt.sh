@@ -2,7 +2,7 @@
 
 #SBATCH --account=3dv
 #SBATCH --output=deeplsd_gt.out
-#SBATCH --gpus=4
+#SBATCH --gpus=2
 #SBATCH --time=1440
 #SBATCH --mem=120000MB
 
@@ -20,6 +20,6 @@ source /home/fmoeller/3dv_venv/bin/activate
 cd /home/fmoeller/glue-factory
 
 # Run script
-python -m gluefactory.ground_truth_generation.deeplsd_gt_multiple_files --num_H=100 --output_folder=deeplsd_gt_test --n_gpus=4 --n_jobs_dataloader=1 --image_name_list=deeplsd_files_done.txt
+python -m gluefactory.ground_truth_generation.deeplsd_gt_multiple_files --num_H=100 --output_folder=deeplsd_gt_test --n_gpus=1 --n_jobs_dataloader=2 --image_name_list=deeplsd_files_done.txt
 echo "Size of generated groundtruth: "
 du -sh /cluster/courses/3dv/data/team-2/outputs/results/deeplsd_gt_test

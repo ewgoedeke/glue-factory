@@ -4,7 +4,7 @@ from kornia.geometry.transform import warp_perspective
 from kornia.morphology import erosion
 from gluefactory.datasets.homographies_deeplsd import sample_homography
 from gluefactory.models.lines.deeplsd import DeepLSD
-
+from memory_profiler import profile
 
 default_H_params = {
     'translation': True,
@@ -27,7 +27,6 @@ erosion_kernel = torch.tensor(
      [0, 0, 1, 0, 0]],
     dtype=torch.float
 )
-
 
 def generate_ground_truth_with_homography_adaptation(img, net: DeepLSD, num_H=10, H_params=default_H_params,
                                 aggregation='median', bs=10):
@@ -52,10 +51,10 @@ def generate_ground_truth_with_homography_adaptation(img, net: DeepLSD, num_H=10
         
     # Loop through all mini batches
     n_mini_batch = int(np.ceil(num_H / bs))
-    dfs = torch.empty((0, h, w), dtype=torch.float, device=device)
-    angles = torch.empty((0, h, w), dtype=torch.float, device=device)
-    offsets = torch.empty((0, h, w, 2), dtype=torch.float, device=device)
-    counts = torch.empty((0, h, w), dtype=torch.float, device=device)
+    dfs = torch.empty((num_H, h, w), dtype=torch.float, device=device)
+    angles = torch.empty((num_H, h, w), dtype=torch.float, device=device)
+    offsets = torch.empty((num_H, h, w, 2), dtype=torch.float, device=device)
+    counts = torch.empty((num_H, h, w), dtype=torch.float, device=device)
     for i in range(n_mini_batch):
         H = Hs[i*bs:(i+1)*bs]
 
@@ -73,12 +72,13 @@ def generate_ground_truth_with_homography_adaptation(img, net: DeepLSD, num_H=10
             df, angle, offset, count = warp_afm(
                 outs['df'], outs['line_level'],
                 outs['offset'], torch.inverse(H))
+            del outs
 
         # Aggregate the results
-        dfs = torch.cat([dfs, df], dim=0)
-        angles = torch.cat([angles, angle], dim=0)
-        offsets = torch.cat([offsets, offset], dim=0)
-        counts = torch.cat([counts, count], dim=0)
+        dfs[i*bs:(i+1)*bs] = df
+        angles[i*bs:(i+1)*bs] = angle
+        offsets[i*bs:(i+1)*bs] = offset
+        counts[i*bs:(i+1)*bs] = count
     
     # dfs = dfs.cpu()
     # angles = angles.cpu()
