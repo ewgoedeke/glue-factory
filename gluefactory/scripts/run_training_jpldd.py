@@ -91,7 +91,8 @@ def get_dataset_and_loader(num_dataloader_workers):  # folder where dataset imag
 
 def get_model_object(model_name, device):
     model_specific_config = {  # define model specific config
-        'pretrained': True
+        'pretrained': True,
+        'timeit': True
     }
     omega_ms_conf = OmegaConf.create(model_specific_config)
     model = get_model(model_name)(omega_ms_conf).to(device)
@@ -120,6 +121,8 @@ def train(model, dataloader):
         for batch in tqdm(dataloader, desc="Batches", unit="batch"):
             optimizer.zero_grad()
             pred = model(batch)
+            timings = model.get_current_timings()
+            print(timings)
             img_and_keypoints = {"keypoints": pred["keypoints"], "image": batch["image"]}
             batch = {**batch, **model.get_groundtruth_descriptors(img_and_keypoints)}
             losses, _ = model.loss(pred, batch)

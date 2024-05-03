@@ -1,7 +1,10 @@
+import time
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import logging
+import numpy as np
 
 from omegaconf import OmegaConf
 
@@ -96,6 +99,17 @@ class JointPointLineDetectorDescriptor(BaseModel):
         # ToDo Figure out heuristics
         # self.line_extractor = LineExtractor(torch.device("cpu"), self.line_extractor_cfg)
 
+        if conf.timeit:
+            self.timings = {
+                "total-makespan": [],
+                "encoder": [],
+                "keypoint-and-junction-heatmap": [],
+                "line-af": [],
+                "line-df": [],
+                "descriptor-branch": [],
+                "keypoint-detection": []
+            }
+
         # load pretrained_elements if wanted (for now that only the ALIKED parts of the network)
         if conf.pretrained:
             logger.info("Load pretrained weights for aliked parts...")
@@ -107,8 +121,10 @@ class JointPointLineDetectorDescriptor(BaseModel):
         # Initialize Lightweight ALIKED model to perform OTF GT generation for descriptors if training
         if conf.train_descriptors.do:
             logger.info("Load ALiked Lightweight model for descriptor training...")
-            device = conf.train_descriptors.device if conf.train_descriptors.device is not None else ('cuda' if torch.cuda.is_available() else 'cpu')
-            self.aliked_lw = get_model("jpldd.aliked_light")(aliked_model_cfg).eval().to(device) # use same config than for our network parts
+            device = conf.train_descriptors.device if conf.train_descriptors.device is not None else (
+                'cuda' if torch.cuda.is_available() else 'cpu')
+            self.aliked_lw = get_model("jpldd.aliked_light")(aliked_model_cfg).eval().to(
+                device)  # use same config than for our network parts
 
     # Utility methods for line df and af with deepLSD
     def normalize_df(self, df):
@@ -121,6 +137,8 @@ class JointPointLineDetectorDescriptor(BaseModel):
         """
         Perform a forward pass. Certain things are only executed NOT in training mode.
         """
+        if self.conf.timeit:
+            total_start = time.time()
         # output container definition
         output = {}
 
@@ -131,8 +149,24 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
         # Get Hidden Feature Map and Keypoint/junction scoring
         padded_img = padder.pad(image)
-        feature_map_padded = self.encoder_backbone(padded_img)
-        score_map_padded = self.keypoint_and_junction_branch(feature_map_padded)
+
+        # pass through encoder
+        if self.conf.timeit:
+            start_encoder = time.time()
+            feature_map_padded = self.encoder_backbone(padded_img)
+            self.timings["encoder"].append(time.time() - start_encoder)
+        else:
+            feature_map_padded = self.encoder_backbone(padded_img)
+
+        # pass through keypoint & junction decoder
+        if self.conf.timeit:
+            start_keypoints = time.time()
+            score_map_padded = self.keypoint_and_junction_branch(feature_map_padded)
+            self.timings["keypoint-and-junction-heatmap"].append(time.time() - start_keypoints)
+        else:
+            score_map_padded = self.keypoint_and_junction_branch(feature_map_padded)
+
+        # normalize and remove padding and format dimensions
         feature_map_padded_normalized = torch.nn.functional.normalize(feature_map_padded, p=2, dim=1)
         feature_map = padder.unpad(feature_map_padded_normalized)
         logger.debug(
@@ -141,26 +175,53 @@ class JointPointLineDetectorDescriptor(BaseModel):
         keypoint_and_junction_score_map = padder.unpad(score_map_padded)  # B x 1 x H x W
         output["keypoint_and_junction_score_map"] = keypoint_and_junction_score_map.squeeze()  # B x H x W
 
-        # Line Elements
-        line_angle_field = self.angle_field_branch(feature_map)
-        line_distance_field = self.distance_field_branch(feature_map)
-        output["deeplsd_line_anglefield"] = line_angle_field.squeeze()  # squeeze to remove size 1 dim to match groundtruth
+        # Line AF Decoder
+        if self.conf.timeit:
+            start_line_af = time.time()
+            line_angle_field = self.angle_field_branch(feature_map)
+            self.timings["line-af"].append(time.time() - start_line_af)
+        else:
+            line_angle_field = self.angle_field_branch(feature_map)
+
+        # Line DF Decoder
+        if self.conf.timeit:
+            start_line_df = time.time()
+            line_distance_field = self.distance_field_branch(feature_map)
+            self.timings["line-df"].append(time.time() - start_line_df)
+        else:
+            line_distance_field = self.distance_field_branch(feature_map)
+
+        output[
+            "deeplsd_line_anglefield"] = line_angle_field.squeeze()  # squeeze to remove size 1 dim to match groundtruth
         output["deeplsd_line_distancefield"] = line_distance_field.squeeze()
 
-        keypoints, kptscores, scoredispersitys = self.dkd(
-            keypoint_and_junction_score_map,
-        )
+        # Keypoint detection
+        if self.conf.timeit:
+            start_keypoints = time.time()
+            keypoints, kptscores, scoredispersitys = self.dkd(
+                keypoint_and_junction_score_map,
+            )
+            self.timings["keypoint-detection"].append(time.time() - start_keypoints)
+        else:
+            keypoints, kptscores, scoredispersitys = self.dkd(
+                keypoint_and_junction_score_map,
+            )
         _, _, h, w = image.shape
         wh = torch.tensor([w, h], device=image.device)
         # no padding required,
         # we can set detection_threshold=-1 and conf.max_num_keypoints -> HERE WE SET THESE VALUES SO WE CAN EXPECT SAME NUM!
-        output["keypoints"] = wh * (torch.stack(keypoints) + 1) / 2.0  # renormalize_keypoints(keypoints, wh)  # B N 2 (list of B tensors having N by 2)
+        output["keypoints"] = wh * (torch.stack(
+            keypoints) + 1) / 2.0  # renormalize_keypoints(keypoints, wh)  # B N 2 (list of B tensors having N by 2)
         output["keypoint_scores"] = torch.stack(kptscores),  # B N
         output["keypoint_score_dispersity"] = torch.stack(scoredispersitys),
 
         # Keypoint descriptors
-        # todo: figure out whether there are issues with the list representation -> cannot expect same num of keypoints
-        keypoint_descriptors, offsets = self.descriptor_branch(feature_map, keypoints)
+        if self.conf.timeit:
+            start_desc = time.time()
+            keypoint_descriptors, offsets = self.descriptor_branch(feature_map, keypoints)
+            self.timings["descriptor-branch"].append(time.time() - start_desc)
+        else:
+            keypoint_descriptors, offsets = self.descriptor_branch(feature_map, keypoints)
         output["keypoint_descriptors"] = torch.stack(keypoint_descriptors)  # B N D
 
         # Extract Lines from Learned Part of the Network
@@ -172,6 +233,8 @@ class JointPointLineDetectorDescriptor(BaseModel):
             line_descriptors = None
             output["line_descriptors"] = line_descriptors
 
+        if self.conf.timeit:
+            self.timings["total-makespan"].append(time.time() - total_start)
         return output
 
     def loss(self, pred, data):
@@ -237,3 +300,25 @@ class JointPointLineDetectorDescriptor(BaseModel):
             if required_loss_key not in data_keys:
                 return False
         return True
+
+    def state_dict(self, *args, **kwargs):
+        """
+        Custom state dict to exclude aliked_lw module from checkpoint.
+        """
+        sd = super().state_dict(*args, **kwargs)
+        del sd["aliked_lw"]
+        return sd
+
+    def get_current_timings(self, reset=False):
+        """
+        ONLY USE IF TIMEIT ACTIVATED. It returns the average of the current times in a dictionary for
+        all the single network parts.
+
+        reset: if True deletes all collected times until now
+        """
+        results = {}
+        for k, v in self.timings.items():
+            results[k] = np.mean(v)
+            if reset:
+                self.timings[k] = []
+        return results
