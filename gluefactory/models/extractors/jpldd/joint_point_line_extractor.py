@@ -237,6 +237,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
     def loss(self, pred, data):
         """
+        format of data: B x H x W
         perform loss calculation based on prediction and data(=groundtruth) for a batch
         1. On Keypoint-ScoreMap:        L1/L2 Loss / FC-Softmax?
         2. On Keypoint-Descriptors:     L1/L2 loss
@@ -248,15 +249,16 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
         # calculate losses and store them into dict
         keypoint_scoremap_loss = F.l1_loss(pred["keypoint_and_junction_score_map"],
-                                           data["superpoint_heatmap"], reduction='mean')
+                                           data["superpoint_heatmap"], reduction='none').mean(dim=(1, 2))
         losses["keypoint_and_junction_score_map"] = keypoint_scoremap_loss
         # Descriptor Loss: expect aliked descriptors as GT
-        if self.conf.train_descriptors.do: # todo: compute descr gt here!
-            keypoint_descriptor_loss = F.l1_loss(pred["keypoint_descriptors"], data["aliked_descriptors"], reduction='mean')
+        if self.conf.train_descriptors.do:
+            data = {**data, **self.get_groundtruth_descriptors({"keypoints": pred["keypoints"], "image": data["image"]})}
+            keypoint_descriptor_loss = F.l1_loss(pred["keypoint_descriptors"], data["aliked_descriptors"], reduction='none').mean(dim=(1, 2))
             losses["keypoint_descriptors"] = keypoint_descriptor_loss
-        line_af_loss = F.l1_loss(pred["deeplsd_line_anglefield"], data["deeplsd_angle_field"], reduction='mean')
+        line_af_loss = F.l1_loss(pred["deeplsd_line_anglefield"], data["deeplsd_angle_field"], reduction='none').mean(dim=(1, 2))
         losses["deeplsd_line_anglefield"] = line_af_loss
-        line_df_loss = F.l1_loss(pred["deeplsd_line_distancefield"], data["deeplsd_distance_field"], reduction='mean')
+        line_df_loss = F.l1_loss(pred["deeplsd_line_distancefield"], data["deeplsd_distance_field"], reduction='none').mean(dim=(1, 2))
         losses["deeplsd_line_distancefield"] = line_df_loss
 
         # Todo: different weightings
@@ -313,7 +315,9 @@ class JointPointLineDetectorDescriptor(BaseModel):
         Custom state dict to exclude aliked_lw module from checkpoint.
         """
         sd = super().state_dict(*args, **kwargs)
-        del sd["aliked_lw"]
+        # don't store lightweight aliked model for descriptor gt computation
+        if self.conf.train_descriptors.do:
+            del sd["aliked_lw"]
         return sd
 
     def get_current_timings(self, reset=False):
@@ -354,9 +358,9 @@ class JointPointLineDetectorDescriptor(BaseModel):
         for i in range(len(data['superpoint_heatmap'])):  # iter over batch dim
             valid_gt_kp = data['superpoint_heatmap'][i][gt_keypoints[i]]
             #precision, recall = self.get_pr(pred['keypoints'][i], valid_gt_kp)
-            precision, recall = 0.5, 0.5
-            precision.append(precision)
-            recall.append(recall)
+            p, r = 0.5, 0.5
+            precision.append(p)
+            recall.append(r)
 
         # Compute the KP repeatability and localization error
         #rep, loc_error = get_repeatability_and_loc_error(

@@ -220,7 +220,7 @@ def training(rank, conf, output_dir, args):
             conf.model = OmegaConf.merge(
                 OmegaConf.create(init_cp["conf"]).model, conf.model
             )
-            print(conf.model)
+            print("Model-Config: ", conf.model)
         else:
             init_cp = None
 
@@ -255,7 +255,6 @@ def training(rank, conf, output_dir, args):
         device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info(f"Using device {device}")
 
-    print(data_conf)
     dataset = get_dataset(data_conf.name)(data_conf)
 
     # Optionally load a different validation dataset than the training one
@@ -423,7 +422,6 @@ def training(rank, conf, output_dir, args):
 
             with autocast(enabled=args.mixed_precision is not None, dtype=mp_dtype):
                 data = batch_to_device(data, device, non_blocking=True)
-                print(data.keys())
                 pred = model(data)
                 losses, _ = loss_fn(pred, data)
                 loss = torch.mean(losses["total"])
@@ -530,7 +528,7 @@ def training(rank, conf, output_dir, args):
                         conf.train,
                         pbar=(rank == -1),
                     )
-
+                logger.info("Metric-Eval-Results: ", results)
                 if rank == 0:
                     str_results = [
                         f"{k} {v:.3E}"
@@ -547,6 +545,7 @@ def training(rank, conf, output_dir, args):
                         writer.add_pr_curve("val/" + k, *v, tot_n_samples)
                     # @TODO: optional always save checkpoint
                     if results[conf.train.best_key] < best_eval:
+                        logger.warn(f"Got new best evaluation value at E {epoch}, IT {it}. Saving new state of experiment!")
                         best_eval = results[conf.train.best_key]
                         save_experiment(
                             model,
@@ -573,6 +572,7 @@ def training(rank, conf, output_dir, args):
                 torch.cuda.empty_cache()  # should be cleared at the first iter
 
             if (tot_it % conf.train.save_every_iter == 0 and tot_it > 0) and rank == 0:
+                logger.warning(f"E {epoch}, IT {it}: saving experiment at current state!")
                 if results is None:
                     results, _, _ = do_evaluation(
                         model,

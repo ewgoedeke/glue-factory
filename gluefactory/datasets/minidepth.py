@@ -1,4 +1,3 @@
-import os
 import shutil
 import zipfile
 from pathlib import Path
@@ -9,7 +8,6 @@ import torch
 import logging
 
 from gluefactory.datasets import BaseDataset
-from gluefactory.models.cache_loader import CacheLoader
 from gluefactory.settings import DATA_PATH
 from gluefactory.utils.image import load_image, ImagePreprocessor
 
@@ -21,6 +19,8 @@ class MiniDepthDataset(BaseDataset):
     Assumes minidepth dataset in folder as jpg images.
     Supports loading groundtruth and only serves images for that gt exists.
     Dataset only deals with loading one element. Batching is done by Dataloader!
+
+    This class only used to load conf and autodownload. For usable Datasets, use get_dataset to get Dataset with split
     """
     default_conf = {
         "data_dir": "minidepth/images",  # as subdirectory of DATA_PATH(defined in settings.py)
@@ -31,6 +31,7 @@ class MiniDepthDataset(BaseDataset):
         "device": None,  # specify device to move image data to. if None is given, just read, skip move to device
         "split": "train",  # train, val, test
         "seed": 0,
+        "num_workers": 0, # number of workers used by the Dataloader
         "prefetch_factor": None,
         "preprocessing": {
             'resize': [800, 800]
@@ -52,11 +53,34 @@ class MiniDepthDataset(BaseDataset):
     }
 
     def _init(self, conf):
-        # Auto-download the dataset
+        # Auto-download the dataset if not existing
         if not (DATA_PATH / conf.data_dir).exists():
             logger.info("Downloading the minidepth dataset...")
             self.download_minidepth()
 
+    def download_minidepth(self):
+        logger.info("Downloading the MiniDepth dataset...")
+        data_dir = DATA_PATH / self.conf.data_dir
+        tmp_dir = data_dir.parent / "minidepth_tmp"
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir)
+        tmp_dir.mkdir(exist_ok=True, parents=True)
+        url_base = "https://filedn.com/lt6zb4ORSwapNyVniJf1Pqh/"
+        zip_name = "minidepth.zip"
+        zip_path = tmp_dir / zip_name
+        torch.hub.download_url_to_file(url_base + zip_name, zip_path)
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            zip_ref.extractall(tmp_dir)
+        shutil.move(tmp_dir / zip_name.split(".")[0], data_dir)
+
+    def get_dataset(self, split):
+        assert split in ['train', 'val', 'test']
+        return _Dataset(self.conf, split)
+
+
+class _Dataset(torch.utils.data.Dataset):
+    def __init__(self, conf, split):
+        self.conf = conf
         self.grayscale = bool(conf.grayscale)
         # self.conf is set in superclass
         # set img preprocessor
@@ -64,7 +88,6 @@ class MiniDepthDataset(BaseDataset):
 
         # select split scenes
         self.img_dir = DATA_PATH / conf.data_dir
-        split = conf.split
         scene_file_path = self.img_dir.parent
         # Extract the scenes corresponding to the right split
         if split == 'train':
@@ -111,24 +134,8 @@ class MiniDepthDataset(BaseDataset):
             self.image_paths = new_img_path_list
             logger.info(f"NUMBER OF IMAGES WITH GT: {len(self.image_paths)}")
 
-    def download_minidepth(self):
-        logger.info("Downloading the MiniDepth dataset...")
-        data_dir = DATA_PATH / self.conf.data_dir
-        tmp_dir = data_dir.parent / "minidepth_tmp"
-        if tmp_dir.exists():
-            shutil.rmtree(tmp_dir)
-        tmp_dir.mkdir(exist_ok=True, parents=True)
-        url_base = "https://filedn.com/lt6zb4ORSwapNyVniJf1Pqh/"
-        zip_name = "minidepth.zip"
-        zip_path = tmp_dir / zip_name
-        torch.hub.download_url_to_file(url_base + zip_name, zip_path)
-        with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            zip_ref.extractall(tmp_dir)
-        shutil.move(tmp_dir / zip_name.split(".")[0], data_dir)
-
     def get_dataset(self, split):
-        assert split in ['train', 'val', 'test']
-        return MiniDepthDataset({"split": split, **self.conf}) # ToDo: create separate class
+        return self
 
     def _read_image(self, path, enforce_batch_dim=False):
         """
@@ -177,7 +184,6 @@ class MiniDepthDataset(BaseDataset):
         return data
 
     def read_datasets_from_h5(self, keys, file):
-        # Todo: see if works, else inspire at CacheLoader
         data = {}
         for key in keys:
             d = torch.from_numpy(
