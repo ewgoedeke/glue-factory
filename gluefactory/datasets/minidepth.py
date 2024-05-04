@@ -1,3 +1,4 @@
+import os
 import shutil
 import zipfile
 from pathlib import Path
@@ -26,8 +27,9 @@ class MiniDepthDataset(BaseDataset):
         "grayscale": False,
         "train_batch_size": 2,  # prefix must match split
         "test_batch_size": 1,
+        "val_batch_size": 1,
         "device": None,  # specify device to move image data to. if None is given, just read, skip move to device
-        "split": "train",
+        "split": "train",  # train, val, test
         "seed": 0,
         "prefetch_factor": None,
         "preprocessing": {
@@ -50,21 +52,34 @@ class MiniDepthDataset(BaseDataset):
     }
 
     def _init(self, conf):
-        self.grayscale = bool(conf.grayscale)
-        # self.conf is set in superclass
-
-        # set img preprocessor
-        self.preprocessor = ImagePreprocessor(conf.preprocessing)
-
         # Auto-download the dataset
         if not (DATA_PATH / conf.data_dir).exists():
             logger.info("Downloading the minidepth dataset...")
             self.download_minidepth()
 
-        # Form pairs of images from the multiview dataset
+        self.grayscale = bool(conf.grayscale)
+        # self.conf is set in superclass
+        # set img preprocessor
+        self.preprocessor = ImagePreprocessor(conf.preprocessing)
+
+        # select split scenes
         self.img_dir = DATA_PATH / conf.data_dir
-        # load all image paths
-        self.image_paths = list(Path(self.img_dir).glob("**/*.jpg"))
+        split = conf.split
+        scene_file_path = self.img_dir.parent
+        # Extract the scenes corresponding to the right split
+        if split == 'train':
+            scenes_file = scene_file_path / 'minidepth_train_scenes.txt'
+        else:
+            scenes_file = scene_file_path / 'minidepth_val_scenes.txt'
+
+        with open(scenes_file, 'r') as f:
+            self.scenes = [line.strip('\n') for line in f.readlines()]
+
+        self.image_paths = []
+        for s in self.scenes:
+            scene_folder = self.img_dir / s
+            self.image_paths += list(Path(scene_folder).glob("**/*.jpg"))
+
         # making them relative for system independent names in export files (path used as name in export)
         self.image_paths = [i.relative_to(self.img_dir) for i in self.image_paths.copy()]
         if len(self.image_paths) == 0:
