@@ -68,8 +68,9 @@ def get_dataset_and_loader(num_dataloader_workers):  # folder where dataset imag
         },
         'batch_size': 4,
         'train_batch_size': 2,  # prefix must match split mode
+        "val_batch_size": 2,
         'num_workers': num_dataloader_workers,
-        'split': 'train',  # if implemented by dataset class gives different splits
+        'split': 'val',  # if implemented by dataset class gives different splits
         "load_features": {
             "do": True,
             "device": None,  # choose device to move groundtruthdata to if None is given, just read, skip move to device
@@ -92,7 +93,11 @@ def get_dataset_and_loader(num_dataloader_workers):  # folder where dataset imag
 def get_model_object(model_name, device):
     model_specific_config = {  # define model specific config
         'pretrained': True,
-        'timeit': True
+        'timeit': True,
+        "train_descriptors": {
+            "do": False,  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
+            "device": None  # device to house the lightweight ALIKED model
+        },
     }
     omega_ms_conf = OmegaConf.create(model_specific_config)
     model = get_model(model_name)(omega_ms_conf).to(device)
@@ -103,13 +108,16 @@ def run(model_name, num_workers_dataloader):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print("Load dataset and create dataloader...")
     dataset, data_loader = get_dataset_and_loader(num_dataloader_workers=num_workers_dataloader)
+    print(len(dataset))
+    print(dataset.scenes)
     print(f"Load model: {model_name}")
     model = get_model_object(model_name, device)
     train(model, data_loader)
 
 
 def train(model, dataloader):
-    model = model.train()
+    #model = model.train()
+    model = model.eval()
     optimizer_fn = {
         "sgd": torch.optim.SGD,
         "adam": torch.optim.Adam,
@@ -123,10 +131,13 @@ def train(model, dataloader):
             pred = model(batch)
             timings = model.get_current_timings()
             print(timings)
-            img_and_keypoints = {"keypoints": pred["keypoints"], "image": batch["image"]}
-            batch = {**batch, **model.get_groundtruth_descriptors(img_and_keypoints)}
-            losses, _ = model.loss(pred, batch)
+            #img_and_keypoints = {"keypoints": pred["keypoints"], "image": batch["image"]}
+            #batch = {**batch, **model.get_groundtruth_descriptors(img_and_keypoints)}
+            losses, metrics = model.loss(pred, batch)
+            print("Metrics: ", metrics)
+            print("Losses: ", losses)
             loss = losses["total"].mean()
+            exit()
             if torch.isnan(loss).any():
                 print(f"Detected NAN, skipping iteration")
                 del pred, batch, loss, losses

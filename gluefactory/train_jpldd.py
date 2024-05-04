@@ -255,7 +255,6 @@ def training(rank, conf, output_dir, args):
         device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info(f"Using device {device}")
 
-    print(data_conf)
     dataset = get_dataset(data_conf.name)(data_conf)
 
     # Optionally load a different validation dataset than the training one
@@ -423,10 +422,10 @@ def training(rank, conf, output_dir, args):
 
             with autocast(enabled=args.mixed_precision is not None, dtype=mp_dtype):
                 data = batch_to_device(data, device, non_blocking=True)
-                print(data.keys())
                 pred = model(data)
                 losses, _ = loss_fn(pred, data)
-                loss = torch.mean(losses["total"])
+                # todo: generate GT descriptors & how to handle timings
+                loss = torch.mean(losses["total"]) # Todo: adapt our loss function or this line to accomodate for diff loss structure
             if torch.isnan(loss).any():
                 print(f"Detected NAN, skipping iteration {it}")
                 del pred, data, loss, losses

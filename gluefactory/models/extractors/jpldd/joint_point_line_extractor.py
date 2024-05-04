@@ -10,7 +10,6 @@ from omegaconf import OmegaConf
 
 from gluefactory.models import get_model
 from gluefactory.models.base_model import BaseModel
-from gluefactory.utils.tools import Timer
 from gluefactory.models.extractors.jpldd.backbone_encoder import AlikedEncoder, aliked_cfgs
 from gluefactory.models.extractors.jpldd.descriptor_head import SDDH
 from gluefactory.models.extractors.jpldd.keypoint_decoder import SMH
@@ -36,7 +35,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
     default_conf = {
         # ToDo: create default conf once everything is running -> default conf is merged with input conf to the init method!
         "model_name": "aliked-n16",
-        "max_num_keypoints": 2000,  # setting for training, for eval: -1
+        "max_num_keypoints": 1000,  # setting for training, for eval: -1
         "detection_threshold": -1,  # setting for training, for eval: 0.2
         "force_num_keypoints": False,
         "pretrained": True,
@@ -46,7 +45,6 @@ class JointPointLineDetectorDescriptor(BaseModel):
             "do": True,  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
             "device": None  # device to house the lightweight ALIKED model
         },
-        "required_loss_keys": ["superpoint_heatmap"],
     }
 
     n_limit_max = 20000  # taken from ALIKED which gives max num keypoints to detect!
@@ -253,14 +251,23 @@ class JointPointLineDetectorDescriptor(BaseModel):
                                            data["superpoint_heatmap"], reduction='mean')
         losses["keypoint_and_junction_score_map"] = keypoint_scoremap_loss
         # Descriptor Loss: expect aliked descriptors as GT
-        keypoint_descriptor_loss = F.l1_loss(pred["keypoint_descriptors"], data["aliked_descriptors"], reduction='mean')
-        losses["keypoint_descriptors"] = keypoint_descriptor_loss
+        if self.conf.train_descriptors.do: # todo: compute descr gt here!
+            keypoint_descriptor_loss = F.l1_loss(pred["keypoint_descriptors"], data["aliked_descriptors"], reduction='mean')
+            losses["keypoint_descriptors"] = keypoint_descriptor_loss
         line_af_loss = F.l1_loss(pred["deeplsd_line_anglefield"], data["deeplsd_angle_field"], reduction='mean')
         losses["deeplsd_line_anglefield"] = line_af_loss
         line_df_loss = F.l1_loss(pred["deeplsd_line_distancefield"], data["deeplsd_distance_field"], reduction='mean')
         losses["deeplsd_line_distancefield"] = line_df_loss
-        overall_loss = keypoint_scoremap_loss + keypoint_descriptor_loss + line_af_loss + line_df_loss
+
+        # Todo: different weightings
+        overall_loss = keypoint_scoremap_loss + line_af_loss + line_df_loss
+        if self.conf.train_descriptors.do:
+            overall_loss += keypoint_descriptor_loss
         losses["total"] = overall_loss
+
+        # add metrics if not in training mode
+        if not self.training:
+            metrics = self.metrics(pred, data)
         return losses, metrics
 
     def get_groundtruth_descriptors(self, pred: dict):
@@ -322,3 +329,43 @@ class JointPointLineDetectorDescriptor(BaseModel):
             if reset:
                 self.timings[k] = []
         return results
+
+    def get_pr(self, pred_kp: torch.Tensor, gt_kp: torch.Tensor, tol=3): # todo, make it work!
+        """ Compute the precision and recall, based on GT KP. """
+        if len(gt_kp) == 0:
+            precision = float(len(pred_kp) == 0)
+            recall = 1.
+        elif len(pred_kp) == 0:
+            precision = 1.
+            recall = float(len(gt_kp) == 0)
+        else:
+            dist = torch.norm(pred_kp[:, None] - gt_kp[None], dim=2)
+            close = (dist < tol).float()
+            precision = close.max(dim=1)[0].mean()
+            recall = close.max(dim=0)[0].mean()
+        return precision, recall
+
+    def metrics(self, pred, data):
+        device = pred['keypoint_and_junction_score_map'].device
+        gt_keypoints = data["superpoint_heatmap"] > 0
+
+        # Compute the precision and recall
+        precision, recall = [], []
+        for i in range(len(data['superpoint_heatmap'])):  # iter over batch dim
+            valid_gt_kp = data['superpoint_heatmap'][i][gt_keypoints[i]]
+            #precision, recall = self.get_pr(pred['keypoints'][i], valid_gt_kp)
+            precision, recall = 0.5, 0.5
+            precision.append(precision)
+            recall.append(recall)
+
+        # Compute the KP repeatability and localization error
+        #rep, loc_error = get_repeatability_and_loc_error(
+        #    pred['keypoints0'], pred['keypoints1'], pred['keypoint_scores0'],
+        #    pred['keypoint_scores1'], data['H_0to1'])
+
+        out = {
+            'precision': torch.tensor(precision, dtype=torch.float, device=device),
+            'recall': torch.tensor(recall, dtype=torch.float, device=device),
+         #   'repeatability': rep, 'loc_error': loc_error
+        }
+        return out

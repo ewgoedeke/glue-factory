@@ -127,7 +127,8 @@ class MiniDepthDataset(BaseDataset):
         shutil.move(tmp_dir / zip_name.split(".")[0], data_dir)
 
     def get_dataset(self, split):
-        return self
+        assert split in ['train', 'val', 'test']
+        return MiniDepthDataset({"split": split, **self.conf}) # ToDo: create separate class
 
     def _read_image(self, path, enforce_batch_dim=False):
         """
