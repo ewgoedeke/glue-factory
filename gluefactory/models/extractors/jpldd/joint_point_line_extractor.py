@@ -119,10 +119,10 @@ class JointPointLineDetectorDescriptor(BaseModel):
         # Initialize Lightweight ALIKED model to perform OTF GT generation for descriptors if training
         if conf.train_descriptors.do:
             logger.warning("Load ALiked Lightweight model for descriptor training...")
-            device = conf.train_descriptors.device if conf.train_descriptors.device is not None else (
-                'cuda' if torch.cuda.is_available() else 'cpu')
+            #device = conf.train_descriptors.device if conf.train_descriptors.device is not None else (
+            #    'cuda' if torch.cuda.is_available() else 'cpu')
             self.aliked_lw = get_model("jpldd.aliked_light")(aliked_model_cfg).eval().to(
-                device)  # use same config than for our network parts
+                self.device)  # use same config than for our network parts
 
     # Utility methods for line df and af with deepLSD
     def normalize_df(self, df):
