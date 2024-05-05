@@ -110,7 +110,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
         # load pretrained_elements if wanted (for now that only the ALIKED parts of the network)
         if conf.pretrained:
-            logger.info("Load pretrained weights for aliked parts...")
+            logger.warning("Load pretrained weights for aliked parts...")
             old_test_val1 = self.encoder_backbone.conv1.weight.data.clone()
             self.load_pretrained_elements()
             assert not torch.all(torch.eq(self.encoder_backbone.conv1.weight.data.clone(),
@@ -118,7 +118,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
         # Initialize Lightweight ALIKED model to perform OTF GT generation for descriptors if training
         if conf.train_descriptors.do:
-            logger.info("Load ALiked Lightweight model for descriptor training...")
+            logger.warning("Load ALiked Lightweight model for descriptor training...")
             device = conf.train_descriptors.device if conf.train_descriptors.device is not None else (
                 'cuda' if torch.cuda.is_available() else 'cpu')
             self.aliked_lw = get_model("jpldd.aliked_light")(aliked_model_cfg).eval().to(
@@ -336,7 +336,9 @@ class JointPointLineDetectorDescriptor(BaseModel):
         sd = super().state_dict(*args, **kwargs)
         # don't store lightweight aliked model for descriptor gt computation
         if self.conf.train_descriptors.do:
-            del sd["aliked_lw"]
+            for k in sd.keys():
+                if k.startswith("aliked_lw"):
+                    del sd[k]
         return sd
 
     def get_current_timings(self, reset=False):
