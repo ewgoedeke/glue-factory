@@ -15,6 +15,7 @@ from gluefactory.models.extractors.jpldd.descriptor_head import SDDH
 from gluefactory.models.extractors.jpldd.keypoint_decoder import SMH
 from gluefactory.models.extractors.jpldd.keypoint_detection import DKD
 from gluefactory.models.extractors.jpldd.utils import InputPadder, change_dict_key
+from gluefactory.models.extractors.jpldd.metrics import compute_pr,compute_loc_error,compute_repeatability
 
 to_ctr = OmegaConf.to_container  # convert DictConfig to dict
 aliked_checkpoint_url = "https://github.com/Shiaoming/ALIKED/raw/main/models/{}.pth"
@@ -372,25 +373,17 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
     def metrics(self, pred, data):
         device = pred['keypoint_and_junction_score_map'].device
-        gt_keypoints = data["superpoint_heatmap"] > 0
-
+        gt = data["superpoint_heatmap"].cpu().numpy()
+        predictions = pred["keypoint_and_junction_score_map"].cpu().numpy()
         # Compute the precision and recall
-        precision, recall = [], []
-        for i in range(len(data['superpoint_heatmap'])):  # iter over batch dim
-            valid_gt_kp = data['superpoint_heatmap'][i][gt_keypoints[i]]
-            #precision, recall = self.get_pr(pred['keypoints'][i], valid_gt_kp)
-            p, r = 0.5, 0.5
-            precision.append(p)
-            recall.append(r)
-
-        # Compute the KP repeatability and localization error
-        #rep, loc_error = get_repeatability_and_loc_error(
-        #    pred['keypoints0'], pred['keypoints1'], pred['keypoint_scores0'],
-        #    pred['keypoint_scores1'], data['H_0to1'])
+        precision, recall, _ = compute_pr(gt,predictions)
+        loc_error = compute_loc_error(gt,predictions)
+        #rep = compute_repeatability(gt,predictions)
 
         out = {
-            'precision': torch.tensor(precision, dtype=torch.float, device=device),
-            'recall': torch.tensor(recall, dtype=torch.float, device=device),
-            #   'repeatability': rep, 'loc_error': loc_error
+            'precision': torch.tensor(precision.copy(), dtype=torch.float, device=device),
+            'recall': torch.tensor(recall.copy(), dtype=torch.float, device=device),
+            #'repeatability': rep,
+            'loc_error': torch.tensor(loc_error,dtype=torch.float, device=device)
         }
         return out
