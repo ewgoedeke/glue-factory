@@ -3,8 +3,8 @@ data:
     data_dir: "minidepth/images"  # as subdirectory of DATA_PATH(defined in settings.py)
     grayscale: False
     num_workers: 2  # defines processes used in Dataloader
-    train_batch_size: 2
-    val_batch_size: 2
+    train_batch_size: 8  # 2 per GPU
+    val_batch_size: 8
     device: null
     prefetch_factor: 2
     preprocessing:
@@ -13,7 +13,7 @@ data:
         do: True
         check_exists: True
         check_nan: False
-        device: null  # choose device to move groundtruthdata to if None is given, just read, skip move to device
+        device: null  # choose device to move ground_truthdata to if None is given, just read, skip move to device
         point_gt:
             path: "outputs/results/superpoint_gt"   # as subdirectory of DATA_PATH(defined in settings.py)
             data_keys: [ "superpoint_heatmap" ]
@@ -32,11 +32,11 @@ model:
 train:
     load_experiment: null  # initialize the model from a previous experiment (take weights)
     seed: 0
-    epochs: 6
-    log_every_iter: 1
-    eval_every_iter: 2 # automatically creates new checkpoint if new best eval metric is reached
-    save_every_iter: 5
-    test_every_epoch: -1 # check if test deactivated
+    epochs: 50
+    log_every_iter: 4
+    eval_every_iter: 738 # automatically creates new checkpoint if new best eval metric is reached -> set to batch num to do only every epoch
+    save_every_iter: 500
+    test_every_epoch: 10 # check if test deactivated
     optimizer: "adam"
     best_key: "loss/total" # key used to determine best checkpoint and evaluation progress
     lr: 1e-4
