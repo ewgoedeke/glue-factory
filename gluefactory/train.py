@@ -545,7 +545,7 @@ def training(rank, conf, output_dir, args):
                         writer.add_pr_curve("val/" + k, *v, tot_n_samples)
                     # @TODO: optional always save checkpoint
                     if results[conf.train.best_key] < best_eval:
-                        logger.warn(f"Got new best evaluation value at E {epoch}, IT {it}. Saving new state of experiment!")
+                        logger.warning(f"Got new best evaluation value at E {epoch}, IT {it}. Saving new state of experiment!")
                         best_eval = results[conf.train.best_key]
                         save_experiment(
                             model,

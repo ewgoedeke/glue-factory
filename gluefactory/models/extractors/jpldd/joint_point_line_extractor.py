@@ -336,7 +336,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         sd = super().state_dict(*args, **kwargs)
         # don't store lightweight aliked model for descriptor gt computation
         if self.conf.train_descriptors.do:
-            for k in sd.keys():
+            for k in list(sd.keys()):
                 if k.startswith("aliked_lw"):
                     del sd[k]
         return sd
