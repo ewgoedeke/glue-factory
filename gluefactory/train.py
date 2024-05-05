@@ -489,7 +489,7 @@ def training(rank, conf, output_dir, args):
                         )
                     )
                     for k, v in losses.items():
-                        writer.add_scalar("training/" + k, v, tot_n_samples)
+                        writer.add_scalar("training/losses/" + k, v, tot_n_samples)
                     writer.add_scalar(
                         "training/lr", optimizer.param_groups[0]["lr"], tot_n_samples
                     )

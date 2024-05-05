@@ -171,7 +171,13 @@ class JointPointLineDetectorDescriptor(BaseModel):
             f"Image size: {image.shape}\nFeatureMap-unpadded: {feature_map.shape}\nFeatureMap-padded: {feature_map_padded.shape}")
         assert (feature_map.shape[2], feature_map.shape[3]) == (image.shape[2], image.shape[3])
         keypoint_and_junction_score_map = padder.unpad(score_map_padded)  # B x 1 x H x W
-        output["keypoint_and_junction_score_map"] = keypoint_and_junction_score_map.squeeze()  # B x H x W
+
+        # For storing, remove additional dimension but keep batch dimension even if its 1
+        # but keep additional dimension for variable -> needed by dkd
+        if keypoint_and_junction_score_map.shape[0] == 1:
+            output["keypoint_and_junction_score_map"] = keypoint_and_junction_score_map[:, 0, :, :]  # B x H x W
+        else:
+            output["keypoint_and_junction_score_map"] = keypoint_and_junction_score_map.squeeze()  # B x H x W
 
         # Line AF Decoder
         if self.conf.timeit:
@@ -189,9 +195,18 @@ class JointPointLineDetectorDescriptor(BaseModel):
         else:
             line_distance_field = self.distance_field_branch(feature_map)
 
+        # remove additional dimensions of size 1 if not having batchsize one
+        assert line_angle_field.shape == line_distance_field.shape
+        if line_angle_field.shape[0] == 1:
+            line_angle_field = line_angle_field[:, 0, :, :]
+            line_distance_field = line_distance_field[:, 0, :, :]
+        else:
+            line_angle_field = line_angle_field.squeeze()
+            line_distance_field = line_distance_field.squeeze()
+
         output[
-            "deeplsd_line_anglefield"] = line_angle_field.squeeze()  # squeeze to remove size 1 dim to match groundtruth
-        output["deeplsd_line_distancefield"] = line_distance_field.squeeze()
+            "deeplsd_line_anglefield"] = line_angle_field  # squeeze to remove size 1 dim to match groundtruth
+        output["deeplsd_line_distancefield"] = line_distance_field
 
         # Keypoint detection
         if self.conf.timeit:
@@ -253,12 +268,16 @@ class JointPointLineDetectorDescriptor(BaseModel):
         losses["keypoint_and_junction_score_map"] = keypoint_scoremap_loss
         # Descriptor Loss: expect aliked descriptors as GT
         if self.conf.train_descriptors.do:
-            data = {**data, **self.get_groundtruth_descriptors({"keypoints": pred["keypoints"], "image": data["image"]})}
-            keypoint_descriptor_loss = F.l1_loss(pred["keypoint_descriptors"], data["aliked_descriptors"], reduction='none').mean(dim=(1, 2))
+            data = {**data,
+                    **self.get_groundtruth_descriptors({"keypoints": pred["keypoints"], "image": data["image"]})}
+            keypoint_descriptor_loss = F.l1_loss(pred["keypoint_descriptors"], data["aliked_descriptors"],
+                                                 reduction='none').mean(dim=(1, 2))
             losses["keypoint_descriptors"] = keypoint_descriptor_loss
-        line_af_loss = F.l1_loss(pred["deeplsd_line_anglefield"], data["deeplsd_angle_field"], reduction='none').mean(dim=(1, 2))
+        line_af_loss = F.l1_loss(pred["deeplsd_line_anglefield"], data["deeplsd_angle_field"], reduction='none').mean(
+            dim=(1, 2))
         losses["deeplsd_line_anglefield"] = line_af_loss
-        line_df_loss = F.l1_loss(pred["deeplsd_line_distancefield"], data["deeplsd_distance_field"], reduction='none').mean(dim=(1, 2))
+        line_df_loss = F.l1_loss(pred["deeplsd_line_distancefield"], data["deeplsd_distance_field"],
+                                 reduction='none').mean(dim=(1, 2))
         losses["deeplsd_line_distancefield"] = line_df_loss
 
         # Todo: different weightings
@@ -334,7 +353,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
                 self.timings[k] = []
         return results
 
-    def get_pr(self, pred_kp: torch.Tensor, gt_kp: torch.Tensor, tol=3): # todo, make it work!
+    def get_pr(self, pred_kp: torch.Tensor, gt_kp: torch.Tensor, tol=3):  # todo, make it work!
         """ Compute the precision and recall, based on GT KP. """
         if len(gt_kp) == 0:
             precision = float(len(pred_kp) == 0)
@@ -370,6 +389,6 @@ class JointPointLineDetectorDescriptor(BaseModel):
         out = {
             'precision': torch.tensor(precision, dtype=torch.float, device=device),
             'recall': torch.tensor(recall, dtype=torch.float, device=device),
-         #   'repeatability': rep, 'loc_error': loc_error
+            #   'repeatability': rep, 'loc_error': loc_error
         }
         return out
