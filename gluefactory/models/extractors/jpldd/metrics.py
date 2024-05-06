@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def compute_tp_fp(data: np.array, pred: np.array,prob_tresh=0.3, distance_thresh=2, simplified=False):
+def compute_tp_fp(data: np.array, pred: np.array, prob_tresh=0.3, distance_thresh=2, simplified=False):
     """
     Compute the true and false positive rates.
 
@@ -45,7 +45,8 @@ def compute_tp_fp(data: np.array, pred: np.array,prob_tresh=0.3, distance_thresh
     fp = np.logical_not(tp)
     return tp, fp, probs, n_gt
 
-def compute_pr(data: np.array, pred: np.array) -> tuple[np.array,np.array,np.array]:
+
+def compute_pr(data: np.array, pred: np.array) -> tuple[np.array, np.array, np.array]:
     """
     Compute precision and recall.
 
@@ -80,6 +81,7 @@ def compute_pr(data: np.array, pred: np.array) -> tuple[np.array,np.array,np.arr
     precision = np.maximum.accumulate(precision[::-1])[::-1]
     return precision, recall, prob
 
+
 def div0(a, b):
     with np.errstate(divide='ignore', invalid='ignore'):
         c = np.true_divide(a, b)
@@ -94,9 +96,10 @@ def compute_loc_error(data: np.array, pred: np.array, prob_thresh=0.3, distance_
     :param data: (Batched) array of actual data (i.e. the ground truth)
     :param pred: (Batched) array of predictions (i.e.)
     """
-    def loc_error_per_image(single_data,pred_prob):
+
+    def loc_error_per_image(single_data, pred_prob):
         # Read data
-        gt = np.where(single_data>prob_thresh)
+        gt = np.where(single_data > prob_thresh)
         gt = np.stack([gt[0], gt[1]], axis=-1)
 
         # Filter out predictions
@@ -112,9 +115,10 @@ def compute_loc_error(data: np.array, pred: np.array, prob_thresh=0.3, distance_
         dist = np.min(dist, axis=1)
         correct_dist = dist[np.less_equal(dist, distance_thresh)]
         return correct_dist
+
     error = []
     for i in range(len(data)):
-        error.append(loc_error_per_image(data[i],pred[i]))
+        error.append(loc_error_per_image(data[i], pred[i]))
     return np.mean(np.concatenate(error))
 
 
@@ -125,6 +129,7 @@ def compute_repeatability(data: np.array, pred: np.array, keep_k_points=300,
     on 2 images, an original image and a warped version of it, plus the homography
     linking the 2 images.
     """
+
     def warp_keypoints(keypoints, H):
         num_points = keypoints.shape[0]
         homogeneous_points = np.concatenate([keypoints, np.ones((num_points, 1))],
@@ -135,7 +140,7 @@ def compute_repeatability(data: np.array, pred: np.array, keep_k_points=300,
     def filter_keypoints(points, shape):
         """ Keep only the points whose coordinates are
         inside the dimensions of shape. """
-        mask = (points[:, 0] >= 0) & (points[:, 0] < shape[0]) &\
+        mask = (points[:, 0] >= 0) & (points[:, 0] < shape[0]) & \
                (points[:, 1] >= 0) & (points[:, 1] < shape[1])
         return points[mask, :]
 
@@ -144,7 +149,7 @@ def compute_repeatability(data: np.array, pred: np.array, keep_k_points=300,
         are still inside shape. """
         warped_points = warp_keypoints(points[:, [1, 0]], H)
         warped_points[:, [0, 1]] = warped_points[:, [1, 0]]
-        mask = (warped_points[:, 0] >= 0) & (warped_points[:, 0] < shape[0]) &\
+        mask = (warped_points[:, 0] >= 0) & (warped_points[:, 0] < shape[0]) & \
                (warped_points[:, 1] >= 0) & (warped_points[:, 1] < shape[1])
         return points[mask, :]
 

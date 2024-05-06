@@ -281,8 +281,9 @@ class JointPointLineDetectorDescriptor(BaseModel):
                                  reduction='none').mean(dim=(1, 2))
         losses["deeplsd_line_distancefield"] = line_df_loss
 
-        # Todo: different weightings
-        overall_loss = keypoint_scoremap_loss + line_af_loss + line_df_loss
+        # Idea: make updates on line-af and line-df bigger by higher contribution to the loss
+        # (other elems are pretrained from ALIKED and need only minor correctional updates)
+        overall_loss = keypoint_scoremap_loss + 10 * line_af_loss + 10 * line_df_loss
         if self.conf.train_descriptors.do:
             overall_loss += keypoint_descriptor_loss
         losses["total"] = overall_loss
