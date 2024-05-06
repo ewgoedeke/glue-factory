@@ -384,6 +384,6 @@ class JointPointLineDetectorDescriptor(BaseModel):
             'precision': torch.tensor(precision.copy(), dtype=torch.float, device=device),
             'recall': torch.tensor(recall.copy(), dtype=torch.float, device=device),
             #'repeatability': rep,
-            'loc_error': torch.tensor(loc_error,dtype=torch.float, device=device)
+            'loc_error': torch.tensor([loc_error],dtype=torch.float, device=device)
         }
         return out
