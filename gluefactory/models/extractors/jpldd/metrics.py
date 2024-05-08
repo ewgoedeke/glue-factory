@@ -1,4 +1,20 @@
 import numpy as np
+from gluefactory.datasets.homographies_deeplsd import sample_homography
+import torch
+from kornia.geometry.transform import warp_perspective
+
+default_H_params = {
+    'translation': True,
+    'rotation': True,
+    'scaling': True,
+    'perspective': True,
+    'scaling_amplitude': 0.2,
+    'perspective_amplitude_x': 0.2,
+    'perspective_amplitude_y': 0.2,
+    'patch_ratio': 0.85,
+    'max_angle': 1.57,
+    'allow_artifacts': True
+}
 
 
 def compute_tp_fp(data: np.array, pred: np.array, prob_tresh=0.3, distance_thresh=2, simplified=False):
@@ -122,8 +138,8 @@ def compute_loc_error(data: np.array, pred: np.array, prob_thresh=0.3, distance_
     return np.mean(np.concatenate(error))
 
 
-def compute_repeatability(data: np.array, pred: np.array, keep_k_points=300,
-                          distance_thresh=3, verbose=False):
+def compute_repeatability(data: np.array, pred: np.array, images: torch.Tensor, net, device,
+                          prob_thresh=0.3, keep_k_points=300,distance_thresh=3, verbose=False):
     """
     Compute the repeatability. The experiment must contain in its output the prediction
     on 2 images, an original image and a warped version of it, plus the homography
@@ -164,21 +180,24 @@ def compute_repeatability(data: np.array, pred: np.array, keep_k_points=300,
     N1s = []
     N2s = []
     for i in range(len(data)):
-        data = np.load(path)
-        shape = data['warped_prob'].shape
-        H = data['homography']
-
+        cur_data = data[i]
+        cur_pred = pred[i]
+        shape = (cur_data.shape[0],cur_data.shape[1])
+        H = torch.tensor(sample_homography(shape,**default_H_params),dtype=torch.float, device=device)
+        warped_img = warp_perspective(torch.tensor(images[i],device=device).unsqueeze(0),H.unsqueeze(0),shape, mode='bilinear')
+        with torch.no_grad():
+            warped_prob = net({"image": warped_img})["keypoint_and_junction_score_map"].cpu().numpy().squeeze()
         # Filter out predictions
-        keypoints = np.where(data['prob'] > 0)
-        prob = data['prob'][keypoints[0], keypoints[1]]
+        keypoints = np.where(cur_pred > prob_thresh)
+        prob = cur_pred[keypoints[0], keypoints[1]]
         keypoints = np.stack([keypoints[0], keypoints[1]], axis=-1)
-        warped_keypoints = np.where(data['warped_prob'] > 0)
-        warped_prob = data['warped_prob'][warped_keypoints[0], warped_keypoints[1]]
+        warped_keypoints = np.where(warped_prob > prob_thresh)
+        warped_prob = warped_prob[warped_keypoints[0], warped_keypoints[1]]
         warped_keypoints = np.stack([warped_keypoints[0],
                                      warped_keypoints[1],
                                      warped_prob], axis=-1)
         warped_keypoints = keep_true_keypoints(warped_keypoints, np.linalg.inv(H),
-                                               data['prob'].shape)
+                                               shape)
 
         # Warp the original keypoints with the true homography
         true_warped_keypoints = warp_keypoints(keypoints[:, [1, 0]], H)

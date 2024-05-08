@@ -375,15 +375,16 @@ class JointPointLineDetectorDescriptor(BaseModel):
         device = pred['keypoint_and_junction_score_map'].device
         gt = data["superpoint_heatmap"].cpu().numpy()
         predictions = pred["keypoint_and_junction_score_map"].cpu().numpy()
+        imgs = data["image"].cpu().numpy()
         # Compute the precision and recall
         precision, recall, _ = compute_pr(gt,predictions)
         loc_error = compute_loc_error(gt,predictions)
-        #rep = compute_repeatability(gt,predictions)
+        rep = compute_repeatability(gt,predictions,imgs,self,device)
 
         out = {
             'precision': torch.tensor(precision.copy(), dtype=torch.float, device=device),
             'recall': torch.tensor(recall.copy(), dtype=torch.float, device=device),
-            #'repeatability': rep,
+            'repeatability': torch.tensor([rep],dtype=torch.float,device=device),
             'loc_error': torch.tensor([loc_error],dtype=torch.float, device=device)
         }
         return out
