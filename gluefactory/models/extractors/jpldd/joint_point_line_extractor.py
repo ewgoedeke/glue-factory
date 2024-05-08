@@ -15,7 +15,7 @@ from gluefactory.models.extractors.jpldd.descriptor_head import SDDH
 from gluefactory.models.extractors.jpldd.keypoint_decoder import SMH
 from gluefactory.models.extractors.jpldd.keypoint_detection import DKD
 from gluefactory.models.extractors.jpldd.utils import InputPadder, change_dict_key
-from gluefactory.models.extractors.jpldd.metrics import compute_pr,compute_loc_error,compute_repeatability
+from gluefactory.models.extractors.jpldd.metrics import compute_pr, compute_loc_error, compute_repeatability
 
 to_ctr = OmegaConf.to_container  # convert DictConfig to dict
 aliked_checkpoint_url = "https://github.com/Shiaoming/ALIKED/raw/main/models/{}.pth"
@@ -41,6 +41,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         "force_num_keypoints": False,
         "pretrained": True,
         "nms_radius": 2,
+        "line_neighborhood": 5,
         "timeit": True,  # override timeit: False from BaseModel
         "train_descriptors": {
             "do": True,  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
@@ -122,7 +123,8 @@ class JointPointLineDetectorDescriptor(BaseModel):
             logger.warning("Load ALiked Lightweight model for descriptor training...")
             #device = conf.train_descriptors.device if conf.train_descriptors.device is not None else (
             #    'cuda' if torch.cuda.is_available() else 'cpu')
-            self.aliked_lw = get_model("jpldd.aliked_light")(aliked_model_cfg).eval()  # use same config than for our network parts
+            self.aliked_lw = get_model("jpldd.aliked_light")(
+                aliked_model_cfg).eval()  # use same config than for our network parts
 
     # Utility methods for line df and af with deepLSD
     def normalize_df(self, df):
@@ -204,8 +206,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
             line_angle_field = line_angle_field.squeeze()
             line_distance_field = line_distance_field.squeeze()
 
-        output[
-            "deeplsd_line_anglefield"] = line_angle_field  # squeeze to remove size 1 dim to match groundtruth
+        output["deeplsd_line_anglefield"] = line_angle_field  # squeeze to remove size 1 dim to match groundtruth
         output["deeplsd_line_distancefield"] = line_distance_field
 
         # Keypoint detection
@@ -254,10 +255,10 @@ class JointPointLineDetectorDescriptor(BaseModel):
         """
         format of data: B x H x W
         perform loss calculation based on prediction and data(=groundtruth) for a batch
-        1. On Keypoint-ScoreMap:        L1/L2 Loss / FC-Softmax?
-        2. On Keypoint-Descriptors:     L1/L2 loss
-        3. On Line-Angle Field:         L1/L2 Loss / FC-Softmax?
-        4. On Line-Distance Field:      L1/L2 Loss / FC-Softmax?
+        1. On Keypoint-ScoreMap:        L1 loss
+        2. On Keypoint-Descriptors:     L1 loss
+        3. On Line-Angle Field:         use angle loss from deepLSD paper
+        4. On Line-Distance Field:      use L1 loss on normalized versions of Distance field (as in deepLSD paper) TODO: Ideally use masked loss.
         """
         losses = {}
         metrics = {}
@@ -273,10 +274,15 @@ class JointPointLineDetectorDescriptor(BaseModel):
             keypoint_descriptor_loss = F.l1_loss(pred["keypoint_descriptors"], data["aliked_descriptors"],
                                                  reduction='none').mean(dim=(1, 2))
             losses["keypoint_descriptors"] = keypoint_descriptor_loss
-        line_af_loss = F.l1_loss(pred["deeplsd_line_anglefield"], data["deeplsd_angle_field"], reduction='none').mean(
-            dim=(1, 2))
+
+        # use angular loss for distance field
+        af_diff = torch.sqrt((pred["deeplsd_line_anglefield"] - data["deeplsd_angle_field"]) ** 2)  # l2 loss
+        line_af_loss = torch.min(af_diff, torch.sqrt((torch.pi - af_diff)**2)).mean(dim=(1, 2))  # pixelwise minimum
         losses["deeplsd_line_anglefield"] = line_af_loss
-        line_df_loss = F.l1_loss(pred["deeplsd_line_distancefield"], data["deeplsd_distance_field"],
+
+        # use normalized versions for loss (Gt and pred are not normalized)
+        line_df_loss = F.l1_loss(pred["deeplsd_line_distancefield"],
+                                 self.normalize_df(data["deeplsd_distance_field"]), # in paper they use this normalized distance field for ground truth. TODO: We are missing masked supervision but I try normalized Map anyway here.
                                  reduction='none').mean(dim=(1, 2))
         losses["deeplsd_line_distancefield"] = line_df_loss
 
@@ -377,14 +383,14 @@ class JointPointLineDetectorDescriptor(BaseModel):
         predictions = pred["keypoint_and_junction_score_map"].cpu().numpy()
         imgs = data["image"].cpu().numpy()
         # Compute the precision and recall
-        precision, recall, _ = compute_pr(gt,predictions)
-        loc_error = compute_loc_error(gt,predictions)
-        rep = compute_repeatability(gt,predictions,imgs,self,device)
+        precision, recall, _ = compute_pr(gt, predictions)
+        loc_error = compute_loc_error(gt, predictions)
+        rep = compute_repeatability(gt, predictions, imgs, self, device)
 
         out = {
             'precision': torch.tensor(precision.copy(), dtype=torch.float, device=device),
             'recall': torch.tensor(recall.copy(), dtype=torch.float, device=device),
-            'repeatability': torch.tensor([rep],dtype=torch.float,device=device),
-            'loc_error': torch.tensor([loc_error],dtype=torch.float, device=device)
+            'repeatability': torch.tensor([rep], dtype=torch.float, device=device),
+            'loc_error': torch.tensor([loc_error], dtype=torch.float, device=device)
         }
         return out
