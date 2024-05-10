@@ -17,7 +17,7 @@ default_H_params = {
 }
 
 
-def compute_tp_fp(data: np.array, pred: np.array, prob_tresh=0.3, distance_thresh=2, simplified=False):
+def compute_tp_fp(data: np.array, pred: np.array, prob_tresh=0.3, distance_thresh=5, simplified=False, max_detections=2000):
     """
     Compute the true and false positive rates.
 
@@ -30,13 +30,14 @@ def compute_tp_fp(data: np.array, pred: np.array, prob_tresh=0.3, distance_thres
     n_gt = len(gt)
 
     # Filter out predictions with near-zero probability
-    mask = np.where(pred > prob_tresh)
+    mask = np.where(pred > 0.02*prob_tresh)
     probs = pred[mask]
     pred = np.array(mask).T
 
     # When several detections match the same ground truth point, only pick
     # the one with the highest score  (the others are false positive)
-    sort_idx = np.argsort(probs)[::-1]
+    sort_idx = np.argsort(probs)[::-1][:max_detections]
+    
     probs = probs[sort_idx]
     pred = pred[sort_idx]
 
@@ -106,7 +107,7 @@ def div0(a, b):
     return c
 
 
-def compute_loc_error(data: np.array, pred: np.array, prob_thresh=0.3, distance_thresh=2):
+def compute_loc_error(data: np.array, pred: np.array, prob_thresh=0.3, distance_thresh=5, max_detections=2000):
     """
     Compute the localization error.
     :param data: (Batched) array of actual data (i.e. the ground truth)
@@ -119,9 +120,13 @@ def compute_loc_error(data: np.array, pred: np.array, prob_thresh=0.3, distance_
         gt = np.stack([gt[0], gt[1]], axis=-1)
 
         # Filter out predictions
-        mask = np.where(pred_prob > prob_thresh)
+        mask = np.where(pred_prob > 0.02*prob_thresh)
         pred = np.array(mask).T
         pred_prob = pred_prob[mask]
+
+        sort_idx = np.argsort(pred_prob)[::-1][:max_detections]
+        pred = pred[sort_idx]
+        pred_prob = pred_prob[sort_idx]
 
         if not len(gt) or not len(pred):
             return []
@@ -135,11 +140,11 @@ def compute_loc_error(data: np.array, pred: np.array, prob_thresh=0.3, distance_
     error = []
     for i in range(len(data)):
         error.append(loc_error_per_image(data[i], pred[i]))
-    return np.mean(np.concatenate(error))
+    return np.mean(np.concatenate(error)) if len(error) > 0 else float(distance_thresh)
 
 
 def compute_repeatability(data: np.array, pred: np.array, images: torch.Tensor, net, device,
-                          prob_thresh=0.3, keep_k_points=300,distance_thresh=3, verbose=False):
+                          prob_thresh=0.01, keep_k_points=300,distance_thresh=5, verbose=False):
     """
     Compute the repeatability. The experiment must contain in its output the prediction
     on 2 images, an original image and a warped version of it, plus the homography
@@ -234,4 +239,4 @@ def compute_repeatability(data: np.array, pred: np.array, images: torch.Tensor, 
     if verbose:
         print("Average number of points in the first image: " + str(np.mean(N1s)))
         print("Average number of points in the second image: " + str(np.mean(N2s)))
-    return np.mean(repeatability)
+    return np.mean(repeatability) if len(repeatability) > 0 else 0.0
