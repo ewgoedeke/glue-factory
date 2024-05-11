@@ -6,6 +6,7 @@ Author: Paul-Edouard Sarlin (skydes)
 
 import argparse
 import copy
+import logging
 import re
 import shutil
 import signal
@@ -408,6 +409,13 @@ def training(rank, conf, output_dir, args):
                     getattr(loader.dataset, conf.train.dataset_callback_fn)(
                         conf.train.seed + epoch
                     )
+        # print average timings for jpldd model if timing is activated
+        if rank == 0 and epoch > 0 and conf.train.timeit:
+            timings = model.get_current_timings(reset=True)
+            logger.info(f"(Rank {rank}) timings for epoch {epoch-1}: {timings}")
+            for k, v in timings.items():
+                writer.add_scalar(f"timings/{k}", v)
+
         for it, data in enumerate(train_loader):
             tot_it = (len(train_loader) * epoch + it) * (
                 args.n_gpus if args.distributed else 1

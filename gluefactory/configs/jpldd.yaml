@@ -2,11 +2,11 @@ data:
     name: gluefactory.datasets.minidepth
     data_dir: "minidepth/images"  # as subdirectory of DATA_PATH(defined in settings.py)
     grayscale: False
-    num_workers: 2  # defines processes used in Dataloader
-    train_batch_size: 8  # 2 per GPU
-    val_batch_size: 8
+    num_workers: 0  # defines processes used in Dataloader
+    train_batch_size: 2  # 2 per GPU
+    val_batch_size: 1
     device: null
-    prefetch_factor: 2
+    prefetch_factor: null
     preprocessing:
         resize: [ 800, 800 ]
     load_features:
@@ -23,6 +23,7 @@ data:
 model:
     name: jpldd.joint_point_line_extractor
     model_name: "aliked-n16"
+    line_neighborhood: 5
     max_num_keypoints: 1000  # setting for training, for eval: -1
     pretrained: True
     timeit: True  # override timeit: False from BaseModel
@@ -33,7 +34,7 @@ train:
     load_experiment: null  # initialize the model from a previous experiment (take weights)
     seed: 0
     epochs: 100
-    log_every_iter: 4
+    log_every_iter: 1
     eval_every_iter: 738 # automatically creates new checkpoint if new best eval metric is reached -> set to batch num to do only every epoch
     save_every_iter: 500
     test_every_epoch: 10 # check if test deactivated
@@ -48,5 +49,6 @@ train:
     #    step: 50e3
     #    n_steps: 4
     submodules: []
+    timeit: True    # print jpldd model mean timings every epoch
     # clip_grad: 10  # Use only with mixed precision
     #load_experiment: jpldd_1

@@ -258,7 +258,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         1. On Keypoint-ScoreMap:        L1 loss
         2. On Keypoint-Descriptors:     L1 loss
         3. On Line-Angle Field:         use angle loss from deepLSD paper
-        4. On Line-Distance Field:      use L1 loss on normalized versions of Distance field (as in deepLSD paper) TODO: Ideally use masked loss.
+        4. On Line-Distance Field:      use L1 loss on normalized versions of Distance field (as in deepLSD paper)
         """
         losses = {}
         metrics = {}
@@ -276,12 +276,12 @@ class JointPointLineDetectorDescriptor(BaseModel):
             losses["keypoint_descriptors"] = keypoint_descriptor_loss
 
         # use angular loss for distance field
-        af_diff = torch.sqrt((pred["deeplsd_line_anglefield"] - data["deeplsd_angle_field"]) ** 2)  # l2 loss
-        line_af_loss = torch.min(af_diff, torch.sqrt((torch.pi - af_diff)**2)).mean(dim=(1, 2))  # pixelwise minimum
+        af_diff = (pred["deeplsd_line_anglefield"] - data["deeplsd_angle_field"])
+        line_af_loss = torch.minimum(af_diff ** 2, (torch.pi - af_diff.abs()) ** 2).mean(dim=(1, 2))  # pixelwise minimum
         losses["deeplsd_line_anglefield"] = line_af_loss
 
         # use normalized versions for loss
-        gt_mask = data["deeplsd_distance_field"] <= self.conf.line_neighborhood
+        gt_mask = data["deeplsd_distance_field"] < self.conf.line_neighborhood
         line_df_loss = F.l1_loss(pred["deeplsd_line_distancefield"] * gt_mask,
                                  self.normalize_df(data["deeplsd_distance_field"]) * gt_mask,  # only supervise in line neighborhood
                                  reduction='none').mean(dim=(1, 2))
