@@ -30,13 +30,14 @@ def compute_tp_fp(data: np.array, pred: np.array, prob_tresh=0.3, distance_thres
     n_gt = len(gt)
 
     # Filter out predictions with near-zero probability
-    mask = np.where(pred > 0.02*prob_tresh)
+    flat_indices = np.argpartition(pred,-max_detections,axis=None)[-max_detections:]
+    mask = np.unravel_index(flat_indices,pred.shape)
     probs = pred[mask]
     pred = np.array(mask).T
 
     # When several detections match the same ground truth point, only pick
     # the one with the highest score  (the others are false positive)
-    sort_idx = np.argsort(probs)[::-1][:max_detections]
+    sort_idx = np.argsort(probs)[::-1]
     
     probs = probs[sort_idx]
     pred = pred[sort_idx]
@@ -120,11 +121,12 @@ def compute_loc_error(data: np.array, pred: np.array, prob_thresh=0.3, distance_
         gt = np.stack([gt[0], gt[1]], axis=-1)
 
         # Filter out predictions
-        mask = np.where(pred_prob > 0.02*prob_thresh)
+        flat_indices = np.argpartition(pred_prob,-max_detections,axis=None)[-max_detections:]
+        mask = np.unravel_index(flat_indices,pred_prob.shape)
         pred = np.array(mask).T
         pred_prob = pred_prob[mask]
 
-        sort_idx = np.argsort(pred_prob)[::-1][:max_detections]
+        sort_idx = np.argsort(pred_prob)[::-1]
         pred = pred[sort_idx]
         pred_prob = pred_prob[sort_idx]
 
@@ -140,11 +142,12 @@ def compute_loc_error(data: np.array, pred: np.array, prob_thresh=0.3, distance_
     error = []
     for i in range(len(data)):
         error.append(loc_error_per_image(data[i], pred[i]))
-    return np.mean(np.concatenate(error)) if len(error) > 0 else float(distance_thresh)
+    errors = np.concatenate(error)
+    return np.mean(errors) if len(errors) > 0 else float(distance_thresh)
 
 
 def compute_repeatability(data: np.array, pred: np.array, images: torch.Tensor, net, device,
-                          prob_thresh=0.01, keep_k_points=300,distance_thresh=5, verbose=False):
+                            max_detections=2000,keep_k_points=300,distance_thresh=5, verbose=False):
     """
     Compute the repeatability. The experiment must contain in its output the prediction
     on 2 images, an original image and a warped version of it, plus the homography
@@ -193,10 +196,12 @@ def compute_repeatability(data: np.array, pred: np.array, images: torch.Tensor, 
         with torch.no_grad():
             warped_prob = net({"image": warped_img})["keypoint_and_junction_score_map"].cpu().numpy().squeeze()
         # Filter out predictions
-        keypoints = np.where(cur_pred > prob_thresh)
+        flat_indices = np.argpartition(cur_pred,-max_detections,axis=None)[-max_detections:]
+        keypoints = np.unravel_index(flat_indices,cur_pred.shape)
         prob = cur_pred[keypoints[0], keypoints[1]]
         keypoints = np.stack([keypoints[0], keypoints[1]], axis=-1)
-        warped_keypoints = np.where(warped_prob > prob_thresh)
+        flat_indices = np.argpartition(warped_prob,-max_detections,axis=None)[-max_detections:]
+        warped_keypoints = np.unravel_index(flat_indices,warped_prob.shape)
         warped_prob = warped_prob[warped_keypoints[0], warped_keypoints[1]]
         warped_keypoints = np.stack([warped_keypoints[0],
                                      warped_keypoints[1],
