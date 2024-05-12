@@ -6,6 +6,7 @@ Author: Paul-Edouard Sarlin (skydes)
 
 import argparse
 import copy
+import logging
 import re
 import shutil
 import signal
@@ -220,7 +221,7 @@ def training(rank, conf, output_dir, args):
             conf.model = OmegaConf.merge(
                 OmegaConf.create(init_cp["conf"]).model, conf.model
             )
-            print(conf.model)
+            print("Model-Config: ", conf.model)
         else:
             init_cp = None
 
@@ -297,7 +298,7 @@ def training(rank, conf, output_dir, args):
         model.load_state_dict(init_cp["model"], strict=False)
     if args.distributed:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device])
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device], find_unused_parameters=True)
     if rank == 0 and args.print_arch:
         logger.info(f"Model: \n{model}")
 
@@ -408,6 +409,13 @@ def training(rank, conf, output_dir, args):
                     getattr(loader.dataset, conf.train.dataset_callback_fn)(
                         conf.train.seed + epoch
                     )
+        # print average timings for jpldd model if timing is activated
+        if rank == 0 and epoch > 0 and conf.train.timeit:
+            timings = model.get_current_timings(reset=True)
+            logger.info(f"(Rank {rank}) timings for epoch {epoch-1}: {timings}")
+            for k, v in timings.items():
+                writer.add_scalar(f"timings/{k}", v)
+
         for it, data in enumerate(train_loader):
             tot_it = (len(train_loader) * epoch + it) * (
                 args.n_gpus if args.distributed else 1
@@ -489,7 +497,7 @@ def training(rank, conf, output_dir, args):
                         )
                     )
                     for k, v in losses.items():
-                        writer.add_scalar("training/" + k, v, tot_n_samples)
+                        writer.add_scalar("training/losses/" + k, v, tot_n_samples)
                     writer.add_scalar(
                         "training/lr", optimizer.param_groups[0]["lr"], tot_n_samples
                     )
@@ -528,7 +536,7 @@ def training(rank, conf, output_dir, args):
                         conf.train,
                         pbar=(rank == -1),
                     )
-
+                logger.info("Metric-Eval-Results: ", results)
                 if rank == 0:
                     str_results = [
                         f"{k} {v:.3E}"
@@ -545,6 +553,7 @@ def training(rank, conf, output_dir, args):
                         writer.add_pr_curve("val/" + k, *v, tot_n_samples)
                     # @TODO: optional always save checkpoint
                     if results[conf.train.best_key] < best_eval:
+                        logger.warning(f"Got new best evaluation value at E {epoch}, IT {it}. Saving new state of experiment!")
                         best_eval = results[conf.train.best_key]
                         save_experiment(
                             model,
@@ -571,6 +580,7 @@ def training(rank, conf, output_dir, args):
                 torch.cuda.empty_cache()  # should be cleared at the first iter
 
             if (tot_it % conf.train.save_every_iter == 0 and tot_it > 0) and rank == 0:
+                logger.warning(f"E {epoch}, IT {it}: saving experiment at current state!")
                 if results is None:
                     results, _, _ = do_evaluation(
                         model,
