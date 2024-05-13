@@ -40,7 +40,7 @@ train:
     seed: 0
     epochs: 100
     log_every_iter: 1
-    eval_every_iter: 738 # automatically creates new checkpoint if new best eval metric is reached -> set to batch num to do only every epoch
+    eval_every_iter: 3000 # automatically creates new checkpoint if new best eval metric is reached -> set > batch size to not eval except at the end of each epoch
     save_every_iter: 500
     test_every_epoch: 10 # check if test deactivated
     optimizer: "adam"

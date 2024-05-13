@@ -270,8 +270,9 @@ class JointPointLineDetectorDescriptor(BaseModel):
         metrics = {}
 
         # calculate losses and store them into dict
-        keypoint_scoremap_loss = F.l1_loss(pred["keypoint_and_junction_score_map"],
-                                           data["superpoint_heatmap"], reduction='none').mean(dim=(1, 2))
+        valid_gt_map = data["superpoint_heatmap"] > 0
+        keypoint_scoremap_loss = F.l1_loss(pred["keypoint_and_junction_score_map"] * valid_gt_map,
+                                           data["superpoint_heatmap"] * valid_gt_map, reduction='none').mean(dim=(1, 2))
         losses["keypoint_and_junction_score_map"] = keypoint_scoremap_loss
         # Descriptor Loss: expect aliked descriptors as GT
         if self.conf.train_descriptors.do:
