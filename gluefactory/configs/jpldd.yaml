@@ -30,6 +30,11 @@ model:
     train_descriptors:
         do: False  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
         device: null # device to house the lightweight ALIKED model
+    loss_weights:
+        line_af_weight: 10
+        line_df_weight: 10
+        keypoint_weight: 1
+        descriptor_loss: 1
 train:
     load_experiment: null  # initialize the model from a previous experiment (take weights)
     seed: 0

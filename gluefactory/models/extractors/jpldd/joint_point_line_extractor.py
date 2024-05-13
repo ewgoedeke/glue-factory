@@ -47,6 +47,12 @@ class JointPointLineDetectorDescriptor(BaseModel):
             "do": True,  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
             "device": None  # device to house the lightweight ALIKED model
         },
+        "loss_weights": {
+            "line_af_weight": 10,
+            "line_df_weight": 10,
+            "keypoint_weight": 1,
+            "descriptor_weight": 1
+        }
     }
 
     n_limit_max = 20000  # taken from ALIKED which gives max num keypoints to detect!
@@ -184,10 +190,10 @@ class JointPointLineDetectorDescriptor(BaseModel):
         # Line AF Decoder
         if self.conf.timeit:
             start_line_af = time.time()
-            line_angle_field = self.angle_field_branch(feature_map)
+            line_angle_field = self.angle_field_branch(feature_map) * torch.pi # multipy with pi as output is in [0, 1] and we want to get angle
             self.timings["line-af"].append(time.time() - start_line_af)
         else:
-            line_angle_field = self.angle_field_branch(feature_map)
+            line_angle_field = self.angle_field_branch(feature_map) * torch.pi
 
         # Line DF Decoder
         if self.conf.timeit:
@@ -203,11 +209,11 @@ class JointPointLineDetectorDescriptor(BaseModel):
             line_angle_field = line_angle_field[:, 0, :, :]
             line_distance_field = line_distance_field[:, 0, :, :]
         else:
-            line_angle_field = line_angle_field.squeeze()
+            line_angle_field = line_angle_field.squeeze() # squeeze to remove size 1 dim to match groundtruth
             line_distance_field = line_distance_field.squeeze()
 
-        output["deeplsd_line_anglefield"] = line_angle_field  # squeeze to remove size 1 dim to match groundtruth
-        output["deeplsd_line_distancefield"] = line_distance_field
+        output["deeplsd_line_anglefield"] = line_angle_field
+        output["deeplsd_line_distancefield"] = self.denormalize_df(line_distance_field) # denormalize as NN outputs normalized version which is focused on line neighborhood
 
         # Keypoint detection
         if self.conf.timeit:
@@ -276,22 +282,24 @@ class JointPointLineDetectorDescriptor(BaseModel):
             losses["keypoint_descriptors"] = keypoint_descriptor_loss
 
         # use angular loss for distance field
-        af_diff = (pred["deeplsd_line_anglefield"] - data["deeplsd_angle_field"])
+        af_diff = (data["deeplsd_angle_field"] - pred["deeplsd_line_anglefield"])
         line_af_loss = torch.minimum(af_diff ** 2, (torch.pi - af_diff.abs()) ** 2).mean(dim=(1, 2))  # pixelwise minimum
         losses["deeplsd_line_anglefield"] = line_af_loss
 
         # use normalized versions for loss
         gt_mask = data["deeplsd_distance_field"] < self.conf.line_neighborhood
-        line_df_loss = F.l1_loss(pred["deeplsd_line_distancefield"] * gt_mask,
+        line_df_loss = F.l1_loss(self.normalize_df(pred["deeplsd_line_distancefield"]) * gt_mask,
                                  self.normalize_df(data["deeplsd_distance_field"]) * gt_mask,  # only supervise in line neighborhood
                                  reduction='none').mean(dim=(1, 2))
         losses["deeplsd_line_distancefield"] = line_df_loss
 
         # Idea: make updates on line-af and line-df bigger by higher contribution to the loss
         # (other elems are pretrained from ALIKED and need only minor correctional updates)
-        overall_loss = keypoint_scoremap_loss + 10 * line_af_loss + 10 * line_df_loss
+        overall_loss = (self.conf.loss_weights.keypoint_weight * keypoint_scoremap_loss
+                        + self.conf.loss_weights.line_af_weight * line_af_loss
+                        + self.conf.loss_weights.line_df_weight * line_df_loss)
         if self.conf.train_descriptors.do:
-            overall_loss += keypoint_descriptor_loss
+            overall_loss += self.conf.loss_weights.descriptor_weight * keypoint_descriptor_loss
         losses["total"] = overall_loss
 
         # add metrics if not in training mode
