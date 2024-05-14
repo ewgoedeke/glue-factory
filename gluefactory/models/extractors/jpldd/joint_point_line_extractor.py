@@ -233,7 +233,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
             self.timings["descriptor-branch"].append(time.time() - start_desc)
         else:
             keypoint_descriptors, offsets = self.descriptor_branch(feature_map, keypoints)
-        output["keypoint_descriptors"] = torch.stack(keypoint_descriptors)  # B N D
+        output["descriptors"] = torch.stack(keypoint_descriptors)  # B N D
 
         # Extract Lines from Learned Part of the Network
         # Only Perform line detection when NOT in training mode
@@ -277,7 +277,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
                     **self.get_groundtruth_descriptors({"keypoints": pred["keypoints"], "image": data["image"]})}
             keypoint_descriptor_loss = F.l1_loss(pred["keypoint_descriptors"], data["aliked_descriptors"],
                                                  reduction='none').mean(dim=(1, 2))
-            losses["keypoint_descriptors"] = keypoint_descriptor_loss
+            losses["descriptors"] = keypoint_descriptor_loss
 
         # use angular loss for distance field
         af_diff = (data["deeplsd_angle_field"] - pred["line_anglefield"])
