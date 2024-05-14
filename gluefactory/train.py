@@ -414,7 +414,7 @@ def training(rank, conf, output_dir, args):
             timings = model.get_current_timings(reset=True)
             logger.info(f"(Rank {rank}) timings for epoch {epoch-1}: {timings}")
             for k, v in timings.items():
-                writer.add_scalar(f"timings/{k}", v)
+                writer.add_scalar(f"timings/{k}", v, epoch)
 
         for it, data in enumerate(train_loader):
             tot_it = (len(train_loader) * epoch + it) * (
