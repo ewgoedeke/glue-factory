@@ -51,7 +51,7 @@ class ImageFolder(BaseDataset, torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         path = self.images[idx]
-        img = load_image(path)
+        img = load_image(self.root / path)
         data = {"name": str(path), **self.preprocessor(img)}
         return data
 
