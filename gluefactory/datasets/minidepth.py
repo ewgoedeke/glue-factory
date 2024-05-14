@@ -181,6 +181,7 @@ class _Dataset(torch.utils.data.Dataset):
         if self.conf.load_features.do:
             gt = self._read_groundtruth(path)
             data = {**data, **gt}
+
         return data
 
     def read_datasets_from_h5(self, keys, file):
