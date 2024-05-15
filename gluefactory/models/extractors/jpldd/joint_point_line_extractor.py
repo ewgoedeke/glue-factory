@@ -47,6 +47,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
             "do": True,  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
             "device": None  # device to house the lightweight ALIKED model
         },
+        "lambda_weighted_bce": 200,
         "loss_weights": {
             "line_af_weight": 10,
             "line_df_weight": 10,
@@ -67,6 +68,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         dim = aliked_model_cfg["dim"]
         K = aliked_model_cfg["K"]
         M = aliked_model_cfg["M"]
+        self.lambda_valid_kp = conf.lambda_weighted_bce
         # Load Network Components
         self.encoder_backbone = AlikedEncoder(aliked_model_cfg)
         self.keypoint_and_junction_branch = SMH(dim)  # using SMH from ALIKE here
@@ -190,7 +192,8 @@ class JointPointLineDetectorDescriptor(BaseModel):
         # Line AF Decoder
         if self.conf.timeit:
             start_line_af = time.time()
-            line_angle_field = self.angle_field_branch(feature_map) * torch.pi # multipy with pi as output is in [0, 1] and we want to get angle
+            line_angle_field = self.angle_field_branch(
+                feature_map) * torch.pi  # multipy with pi as output is in [0, 1] and we want to get angle
             self.timings["line-af"].append(time.time() - start_line_af)
         else:
             line_angle_field = self.angle_field_branch(feature_map) * torch.pi
@@ -209,13 +212,15 @@ class JointPointLineDetectorDescriptor(BaseModel):
             line_angle_field = line_angle_field[:, 0, :, :]
             line_distance_field = line_distance_field[:, 0, :, :]
         else:
-            line_angle_field = line_angle_field.squeeze() # squeeze to remove size 1 dim to match groundtruth
+            line_angle_field = line_angle_field.squeeze()  # squeeze to remove size 1 dim to match groundtruth
             line_distance_field = line_distance_field.squeeze()
 
         output["deeplsd_line_anglefield"] = line_angle_field
-        output["deeplsd_line_distancefield"] = self.denormalize_df(line_distance_field) # denormalize as NN outputs normalized version which is focused on line neighborhood
+        output["deeplsd_line_distancefield"] = self.denormalize_df(
+            line_distance_field)  # denormalize as NN outputs normalized version which is focused on line neighborhood
 
         # Keypoint detection
+        #if self.conf.detect_keypoints:
         if self.conf.timeit:
             start_keypoints = time.time()
             keypoints, kptscores, scoredispersitys = self.dkd(
@@ -232,8 +237,8 @@ class JointPointLineDetectorDescriptor(BaseModel):
         # we can set detection_threshold=-1 and conf.max_num_keypoints -> HERE WE SET THESE VALUES SO WE CAN EXPECT SAME NUM!
         output["keypoints"] = wh * (torch.stack(
             keypoints) + 1) / 2.0  # renormalize_keypoints(keypoints, wh)  # B N 2 (list of B tensors having N by 2)
-        output["keypoint_scores"] = torch.stack(kptscores),  # B N
-        output["keypoint_score_dispersity"] = torch.stack(scoredispersitys),
+        output["keypoint_scores"] = torch.stack(kptscores)  # B N
+        output["keypoint_score_dispersity"] = torch.stack(scoredispersitys)
 
         # Keypoint descriptors
         if self.conf.timeit:
@@ -266,13 +271,19 @@ class JointPointLineDetectorDescriptor(BaseModel):
         3. On Line-Angle Field:         use angle loss from deepLSD paper
         4. On Line-Distance Field:      use L1 loss on normalized versions of Distance field (as in deepLSD paper)
         """
+
+        def weighted_bce_loss(pred, target):
+            return -self.lambda_valid_kp * target * torch.log(pred) - (1 - target) * torch.log(1 - pred)
+
         losses = {}
         metrics = {}
 
-        # calculate losses and store them into dict
-        valid_gt_map = data["superpoint_heatmap"] > 0
-        keypoint_scoremap_loss = F.l1_loss(pred["keypoint_and_junction_score_map"] * valid_gt_map,
-                                           data["superpoint_heatmap"] * valid_gt_map, reduction='none').mean(dim=(1, 2))
+        assert (0 <= pred["keypoint_and_junction_score_map"].min() and pred["keypoint_and_junction_score_map"].max() <= 1)
+        assert (0 <= data["superpoint_heatmap"].min() and data["superpoint_heatmap"].max() <= 1)
+        # Use Weighted BCE Loss for Point Heatmap
+        keypoint_scoremap_loss = weighted_bce_loss(pred["keypoint_and_junction_score_map"],
+                                                   data["superpoint_heatmap"]).mean(dim=(1, 2))
+
         losses["keypoint_and_junction_score_map"] = keypoint_scoremap_loss
         # Descriptor Loss: expect aliked descriptors as GT
         if self.conf.train_descriptors.do:
@@ -284,13 +295,15 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
         # use angular loss for distance field
         af_diff = (data["deeplsd_angle_field"] - pred["deeplsd_line_anglefield"])
-        line_af_loss = torch.minimum(af_diff ** 2, (torch.pi - af_diff.abs()) ** 2).mean(dim=(1, 2))  # pixelwise minimum
+        line_af_loss = torch.minimum(af_diff ** 2, (torch.pi - af_diff.abs()) ** 2).mean(
+            dim=(1, 2))  # pixelwise minimum
         losses["deeplsd_line_anglefield"] = line_af_loss
 
         # use normalized versions for loss
         gt_mask = data["deeplsd_distance_field"] < self.conf.line_neighborhood
         line_df_loss = F.l1_loss(self.normalize_df(pred["deeplsd_line_distancefield"]) * gt_mask,
-                                 self.normalize_df(data["deeplsd_distance_field"]) * gt_mask,  # only supervise in line neighborhood
+                                 self.normalize_df(data["deeplsd_distance_field"]) * gt_mask,
+                                 # only supervise in line neighborhood
                                  reduction='none').mean(dim=(1, 2))
         losses["deeplsd_line_distancefield"] = line_df_loss
 

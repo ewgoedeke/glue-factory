@@ -3,7 +3,7 @@ data:
     data_dir: "minidepth/images"  # as subdirectory of DATA_PATH(defined in settings.py)
     grayscale: False
     num_workers: 0  # defines processes used in Dataloader
-    train_batch_size: 2  # 2 per GPU
+    train_batch_size: 1  # 2 per GPU
     val_batch_size: 1
     device: null
     prefetch_factor: null
@@ -30,6 +30,7 @@ model:
     train_descriptors:
         do: False  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
         device: null # device to house the lightweight ALIKED model
+    lambda_weighted_bce: 200
     loss_weights:
         line_af_weight: 10
         line_df_weight: 10
