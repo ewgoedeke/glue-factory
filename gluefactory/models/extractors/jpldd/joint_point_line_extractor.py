@@ -401,6 +401,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
             else:
                 continue
 
+
         # load values
         self.load_state_dict(aliked_state_dict, strict=False)
 
