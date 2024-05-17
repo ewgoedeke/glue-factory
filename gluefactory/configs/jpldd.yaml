@@ -26,6 +26,7 @@ model:
     line_neighborhood: 5
     max_num_keypoints: 1000  # setting for training, for eval: -1
     pretrained: True
+    pretrain_kp_decoder: False
     timeit: True  # override timeit: False from BaseModel
     train_descriptors:
         do: False  # if train is True, initialize ALIKED Light model form OTF Descriptor GT

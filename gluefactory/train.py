@@ -411,7 +411,10 @@ def training(rank, conf, output_dir, args):
                     )
         # print average timings for jpldd model if timing is activated
         if rank == 0 and epoch > 0 and conf.train.timeit:
-            timings = model.get_current_timings(reset=True)
+            if args.distributed:
+                timings = model.module.get_current_timings(reset=True)
+            else:
+                timings = model.get_current_timings(reset=True)
             logger.info(f"(Rank {rank}) timings for epoch {epoch-1}: {timings}")
             for k, v in timings.items():
                 writer.add_scalar(f"timings/{k}", v, epoch)

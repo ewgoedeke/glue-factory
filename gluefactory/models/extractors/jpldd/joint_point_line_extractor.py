@@ -40,6 +40,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         "detection_threshold": -1,  # setting for training, for eval: 0.2
         "force_num_keypoints": False,
         "pretrained": True,
+        "pretrain_kp_decoder": True,
         "nms_radius": 2,
         "line_neighborhood": 5,
         "timeit": True,  # override timeit: False from BaseModel
@@ -325,7 +326,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         """
         Takes keypoints from predictions (best 100 + 100 random) + computes ground-truth descriptors for it.
         """
-        assert pred.get('image', None) is not None and pred.get('keypoints', None) is not None  # todo: check dims
+        assert pred.get('image', None) is not None and pred.get('keypoints', None) is not None
         with torch.no_grad():
             descriptors = self.aliked_lw(pred)
         return descriptors
@@ -342,11 +343,15 @@ class JointPointLineDetectorDescriptor(BaseModel):
             if k.startswith("block") or k.startswith("conv"):
                 change_dict_key(aliked_state_dict, k, f"encoder_backbone.{k}")
             elif k.startswith("score_head"):
-                change_dict_key(aliked_state_dict, k, f"keypoint_and_junction_branch.{k}")
+                if not self.conf.pretrain_kp_decoder:
+                    del aliked_state_dict[k]
+                else:
+                    change_dict_key(aliked_state_dict, k, f"keypoint_and_junction_branch.{k}")
             elif k.startswith("desc_head"):
                 change_dict_key(aliked_state_dict, k, f"descriptor_branch.{k[10:]}")
             else:
                 continue
+        
         # load values
         self.load_state_dict(aliked_state_dict, strict=False)
 
