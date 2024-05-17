@@ -35,7 +35,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
     # currently contains only ALIKED
     default_conf = {
         # ToDo: create default conf once everything is running -> default conf is merged with input conf to the init method!
-        "model_name": "aliked-n16",
+        "aliked_model_name": "aliked-n16",
         "max_num_keypoints": 1000,  # setting for training, for eval: -1
         "detection_threshold": -1,  # setting for training, for eval: 0.2
         "force_num_keypoints": False,
@@ -64,7 +64,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         logger.debug(f"final config dict(type={type(conf)}): {conf}")
         # c1-c4 -> output dimensions of encoder blocks, dim -> dimension of hidden feature map
         # K=Kernel-Size, M=num sampling pos
-        aliked_model_cfg = aliked_cfgs[conf.model_name]
+        aliked_model_cfg = aliked_cfgs[conf.aliked_model_name]
         dim = aliked_model_cfg["dim"]
         K = aliked_model_cfg["K"]
         M = aliked_model_cfg["M"]
@@ -335,7 +335,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         Loads ALIKED weights for backbone encoder, score_head(SMH) and SDDH
         """
         # Load state-dict of wanted aliked-model
-        aliked_state_url = aliked_checkpoint_url.format(self.conf.model_name)
+        aliked_state_url = aliked_checkpoint_url.format(self.conf.aliked_model_name)
         aliked_state_dict = torch.hub.load_state_dict_from_url(aliked_state_url, map_location="cpu")
         # change keys
         for k, v in list(aliked_state_dict.items()):
