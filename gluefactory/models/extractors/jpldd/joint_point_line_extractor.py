@@ -15,7 +15,7 @@ from gluefactory.models.extractors.jpldd.descriptor_head import SDDH
 from gluefactory.models.extractors.jpldd.keypoint_decoder import SMH
 from gluefactory.models.extractors.jpldd.keypoint_detection import DKD
 from gluefactory.models.extractors.jpldd.utils import InputPadder, change_dict_key
-from gluefactory.models.extractors.jpldd.metrics import compute_pr, compute_loc_error, compute_repeatability
+from gluefactory.models.extractors.jpldd.metrics_points import compute_pr, compute_loc_error, compute_repeatability
 
 to_ctr = OmegaConf.to_container  # convert DictConfig to dict
 aliked_checkpoint_url = "https://github.com/Shiaoming/ALIKED/raw/main/models/{}.pth"
