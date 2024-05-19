@@ -16,6 +16,24 @@ from gluefactory.models.extractors.jpldd.keypoint_decoder import SMH
 from gluefactory.models.extractors.jpldd.keypoint_detection import DKD
 from gluefactory.models.extractors.jpldd.utils import InputPadder, change_dict_key
 from gluefactory.models.extractors.jpldd.metrics_points import compute_pr, compute_loc_error, compute_repeatability
+import gluefactory.models.extractors.jpldd.metrics_lines as LineMetrics
+from gluefactory.datasets.homographies_deeplsd import sample_homography
+from kornia.geometry.transform import warp_perspective
+
+
+default_H_params = {
+    'translation': True,
+    'rotation': True,
+    'scaling': True,
+    'perspective': True,
+    'scaling_amplitude': 0.2,
+    'perspective_amplitude_x': 0.2,
+    'perspective_amplitude_y': 0.2,
+    'patch_ratio': 0.85,
+    'max_angle': 1.57,
+    'allow_artifacts': True
+}
+
 
 to_ctr = OmegaConf.to_container  # convert DictConfig to dict
 aliked_checkpoint_url = "https://github.com/Shiaoming/ALIKED/raw/main/models/{}.pth"
@@ -391,16 +409,39 @@ class JointPointLineDetectorDescriptor(BaseModel):
         device = pred['keypoint_and_junction_score_map'].device
         gt = data["superpoint_heatmap"].cpu().numpy()
         predictions = pred["keypoint_and_junction_score_map"].cpu().numpy()
-        imgs = data["image"].cpu().numpy()
         # Compute the precision and recall
-        precision, recall, _ = compute_pr(gt, predictions)
-        loc_error = compute_loc_error(gt, predictions)
-        rep = compute_repeatability(gt, predictions, imgs, self, device)
+        warped_outputs,Hs = self._get_warped_outputs(data)
+        warped_predictions = warped_outputs["keypoint_and_junction_score_map"].cpu().numpy()
 
+        precision, recall, _ = compute_pr(gt, predictions)
+        loc_error_points = compute_loc_error(gt, predictions)
+        rep_points = compute_repeatability(predictions, warped_predictions,Hs)
         out = {
             'precision': torch.tensor(precision.copy(), dtype=torch.float, device=device),
             'recall': torch.tensor(recall.copy(), dtype=torch.float, device=device),
-            'repeatability': torch.tensor([rep], dtype=torch.float, device=device),
-            'loc_error': torch.tensor([loc_error], dtype=torch.float, device=device)
+            'repeatability_points': torch.tensor([rep_points], dtype=torch.float, device=device),
+            'loc_error_points': torch.tensor([loc_error_points], dtype=torch.float, device=device),
         }
+        if "lines" in warped_outputs:
+            lines = pred["lines"]
+            warped_lines = warped_outputs["lines"]
+            rep_lines, loc_error_lines = LineMetrics.get_rep_and_loc_error(lines,warped_lines,Hs,predictions[0].shape)
+            out['repeatability_lines'] = torch.tensor([rep_lines], dtype=torch.float, device=device)
+            out['loc_error_lines'] =  torch.tensor([loc_error_lines], dtype=torch.float, device=device)
+
         return out
+    
+    def _get_warped_outputs(self,data):
+        imgs = data["image"]
+        device = data["image"].device
+        batch_size = imgs.shape[0]
+        data_shape = imgs[0].shape
+        warped_imgs = torch.empty(imgs.shape,dtype=torch.float, device=device)
+        Hs = torch.empty(imgs.shape,dtype=torch.float, device=device)
+        for i in range(batch_size):
+            H = torch.tensor(sample_homography(data_shape,**default_H_params),dtype=torch.float, device=device)
+            Hs[i] = H
+            warped_imgs[i] = warp_perspective(torch.tensor(imgs[i],device=device).unsqueeze(0),H.unsqueeze(0),data_shape, mode='bilinear')
+        with torch.no_grad():
+            warped_outputs = self({"image": warped_imgs})
+        return warped_outputs,Hs

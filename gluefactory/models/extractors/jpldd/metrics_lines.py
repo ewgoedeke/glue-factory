@@ -11,7 +11,33 @@ from gluefactory.datasets.homographies_deeplsd import warp_lines
 #from homography_est import LineSegment, ransac_line_homography
 
 
+num_lines_thresholds = [10, 25, 50, 100, 300]
+thresholds = [1, 2, 3, 4, 5]
+
 ### Line matching
+
+
+
+
+def get_rep_and_loc_error(lines: np.ndarray, warped_lines: np.ndarray, Hs: np.ndarray,img_size: tuple[float,float]) -> tuple[float,float]:
+    (struct_rep, struct_loc_error, num_lines) = [], [], []
+    for i in range(len(lines)):
+        cur_lines = lines[i]
+        cur_warped_lines = warped_lines[i]
+        num_lines.append((len(cur_lines) + len(cur_warped_lines)) / 2)
+        segs1, segs2, matched_idx1, matched_idx2, distances = match_segments_1_to_1(
+            cur_lines, cur_warped_lines, Hs[i], img_size, line_dist='struct', dist_thresh=5)
+        if len(matched_idx1) == 0:
+            struct_rep.append([0] * len(thresholds))
+        else:
+            struct_rep.append(compute_repeatability(segs1, segs2, matched_idx1, matched_idx2,
+                                                    distances, thresholds, rep_type='num'))
+            struct_loc_error.append(compute_loc_error(distances, num_lines_thresholds))
+    num_lines = np.mean(num_lines)
+    repeatability = np.mean(np.stack(struct_rep, axis=0), axis=0)
+    loc_error = np.mean(np.stack(struct_loc_error, axis=0), axis=0)
+    return repeatability,loc_error
+
 
 def match_segments_1_to_1(
     line_seg1, line_seg2, H, img_size, line_dist='area',
@@ -67,29 +93,29 @@ def match_segments_1_to_1(
     return segs1, segs2, matched_idx1, matched_idx2, distances
 
 
-def match_segments_lbd(img, line_seg1, line_seg2, H, img_size):
-    """ Match two sets of line segments with LBD. """
-    lbd = PyTLBD()
+# def match_segments_lbd(img, line_seg1, line_seg2, H, img_size):
+#     """ Match two sets of line segments with LBD. """
+#     lbd = PyTLBD()
 
-    # Gather lines in common between the two views and warp lines1 to img0
-    segs1, segs2 = get_common_lines(line_seg1, line_seg2, H, img_size)
+#     # Gather lines in common between the two views and warp lines1 to img0
+#     segs1, segs2 = get_common_lines(line_seg1, line_seg2, H, img_size)
 
-    if len(segs1) == 0 or len(segs2) == 0:
-        return (np.empty((0, 2, 2)), np.empty((0, 2, 2)),
-                np.empty(0), np.empty(0))
+#     if len(segs1) == 0 or len(segs2) == 0:
+#         return (np.empty((0, 2, 2)), np.empty((0, 2, 2)),
+#                 np.empty(0), np.empty(0))
 
-    # Compute line descriptors
-    desc1 = lbd.compute_descriptors(img, segs1[:, :, [1, 0]].reshape(-1, 4))
-    desc2 = lbd.compute_descriptors(img, segs2[:, :, [1, 0]].reshape(-1, 4))
+#     # Compute line descriptors
+#     desc1 = lbd.compute_descriptors(img, segs1[:, :, [1, 0]].reshape(-1, 4))
+#     desc2 = lbd.compute_descriptors(img, segs2[:, :, [1, 0]].reshape(-1, 4))
 
-    # Match them
-    matches = lbd.match_lines(segs1[:, :, [1, 0]].reshape(-1, 4),
-                              segs2[:, :, [1, 0]].reshape(-1, 4),
-                              desc1, desc2)
-    matched_idx1 = np.where(matches != -1)[0]
-    matched_idx2 = matches[matched_idx1]
+#     # Match them
+#     matches = lbd.match_lines(segs1[:, :, [1, 0]].reshape(-1, 4),
+#                               segs2[:, :, [1, 0]].reshape(-1, 4),
+#                               desc1, desc2)
+#     matched_idx1 = np.where(matches != -1)[0]
+#     matched_idx2 = matches[matched_idx1]
 
-    return segs1, segs2, matched_idx1, matched_idx2
+#     return segs1, segs2, matched_idx1, matched_idx2
 
 
 ### Metrics computation
