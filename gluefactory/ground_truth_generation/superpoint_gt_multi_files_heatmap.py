@@ -19,16 +19,10 @@ from gluefactory.datasets import get_dataset
 from gluefactory.models.extractors.superpoint_open import SuperPoint
 
 from gluefactory.geometry.homography import sample_homography_corners
-from gluefactory.utils.image import numpy_image_to_torch
-from gluefactory.geometry.homography import warp_points
 
-from torch import nn
-import torch.nn.functional as F
-from torch.utils.checkpoint import checkpoint
-from copy import deepcopy
 from kornia.geometry.transform import warp_perspective
 from kornia.morphology import erosion
-import matplotlib.pyplot as plt
+
 
 conf = {
     "patch_shape": [800, 800],
