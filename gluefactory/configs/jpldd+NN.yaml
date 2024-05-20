@@ -2,9 +2,12 @@ model:
   name: two_view_pipeline
   extractor:
     name: extractors.jpldd.joint_point_line_extractor
+    training:
+      do: False
     max_num_keypoints: 2048
     detection_threshold: 0.0
     nms_radius: 3
+    checkpoint: rk_jpldd_04/checkpoint_best.tar
   matcher:
     name: matchers.nearest_neighbor_matcher
 benchmarks:
