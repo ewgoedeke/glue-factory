@@ -25,22 +25,22 @@ model:
     model_name: "aliked-n16"
     line_neighborhood: 5
     max_num_keypoints: 1000  # setting for training, for eval: -1
-    pretrained: True
+    pretrained: False
     pretrain_kp_decoder: False
     timeit: True  # override timeit: False from BaseModel
     train_descriptors:
-        do: False  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
+        do: True  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
         device: null # device to house the lightweight ALIKED model
-    lambda_weighted_bce: 200
+    lambda_weighted_bce: 175
     loss_weights:
         line_af_weight: 1
         line_df_weight: 1
         keypoint_weight: 1
         descriptor_loss: 1
 train:
-    load_experiment: null  # initialize the model from a previous experiment (take weights)
+    load_experiment: rk_jpldd_03  # initialize the model from a previous experiment (take weights)
     seed: 0
-    epochs: 50
+    epochs: 30
     log_every_iter: 4
     eval_every_iter: 3000 # automatically creates new checkpoint if new best eval metric is reached -> set > batch size to not eval except at the end of each epoch
     save_every_iter: 3000
