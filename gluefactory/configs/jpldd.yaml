@@ -14,28 +14,31 @@ data:
         check_nan: False
         device: null  # choose device to move ground_truthdata to if None is given, just read, skip move to device
         point_gt:
-            path: "superpoint_gt"   # as subdirectory of DATA_PATH(defined in settings.py)
+            path: "outputs/results/superpoint_gt"   # as subdirectory of DATA_PATH(defined in settings.py)
             data_keys: [ "superpoint_heatmap" ]
         line_gt:
-            path: "deeplsd_gt"   # as subdirectory of DATA_PATH(defined in settings.py)
+            path: "outputs/results/deeplsd_gt"   # as subdirectory of DATA_PATH(defined in settings.py)
             data_keys: [ "deeplsd_distance_field", "deeplsd_angle_field" ]
 model:
     name: jpldd.joint_point_line_extractor
     model_name: "aliked-n16"
     line_neighborhood: 5
     max_num_keypoints: 1000  # setting for training, for eval: -1
-    pretrained: True
-    pretrain_kp_decoder: True
+    training:
+        do: True
+        aliked_pretrained: True
+        train_descriptors:
+            do: True # if train is True, initialize ALIKED Light model form OTF Descriptor GT
+            gt_aliked_model: "aliked-n32"
+        pretrain_kp_decoder: False
+        lambda_weighted_bce: 200
+        loss_weights:
+            line_af_weight: 10
+            line_df_weight: 10
+            keypoint_weight: 1
+            descriptor_loss: 1
+    checkpoint: null  # if given load model weights from this checkpoint
     timeit: True  # override timeit: False from BaseModel
-    train_descriptors:
-        do: True # if train is True, initialize ALIKED Light model form OTF Descriptor GT
-        gt_aliked_model: "aliked-n32"
-    lambda_weighted_bce: 200
-    loss_weights:
-        line_af_weight: 10
-        line_df_weight: 10
-        keypoint_weight: 1
-        descriptor_loss: 1
 train:
     load_experiment: null  # initialize the model from a previous experiment (take weights)
     seed: 0
