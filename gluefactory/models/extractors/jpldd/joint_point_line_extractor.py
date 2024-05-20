@@ -8,6 +8,7 @@ import numpy as np
 
 from omegaconf import OmegaConf
 
+from gluefactory import load_experiment
 from gluefactory.models import get_model
 from gluefactory.models.base_model import BaseModel
 from gluefactory.models.extractors.jpldd.backbone_encoder import AlikedEncoder, aliked_cfgs
@@ -124,10 +125,11 @@ class JointPointLineDetectorDescriptor(BaseModel):
             self.aliked_lw = get_model("jpldd.aliked_light")(
                 aliked_model_cfg).eval()  # use same config than for our network parts
 
-        # load model checkpoint if given
+        # load model checkpoint if given -> only load weights
         if conf.checkpoint is not None:
             logger.warning(f"Load model parameters from checkpoint {conf.checkpoint}")
-            self.load_state_dict(conf.checkpoint, strict=False)
+            st_dict = torch.load(conf.checkpoint, map_location=torch.device('cpu'))
+            self.load_state_dict(st_dict, strict=False)
 
     # Utility methods for line df and af with deepLSD
     def normalize_df(self, df):
