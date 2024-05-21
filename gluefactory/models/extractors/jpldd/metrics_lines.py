@@ -29,6 +29,7 @@ def get_rep_and_loc_error(lines: np.ndarray, warped_lines: np.ndarray, Hs: np.nd
             cur_lines, cur_warped_lines, Hs[i], img_size, line_dist='struct', dist_thresh=5)
         if len(matched_idx1) == 0:
             struct_rep.append([0] * len(thresholds))
+            struct_loc_error.append([0] * len(thresholds))
         else:
             struct_rep.append(compute_repeatability(segs1, segs2, matched_idx1, matched_idx2,
                                                     distances, thresholds, rep_type='num'))

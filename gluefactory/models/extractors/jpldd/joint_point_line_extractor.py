@@ -449,7 +449,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         if "line_segments" in warped_outputs:
             lines = pred["line_segments"]
             warped_lines = warped_outputs["line_segments"]
-            rep_lines, loc_error_lines = LineMetrics.get_rep_and_loc_error(lines,warped_lines,Hs,predictions[0].shape)
+            rep_lines, loc_error_lines = LineMetrics.get_rep_and_loc_error(lines,warped_lines,Hs.cpu().numpy(),predictions[0].shape)
             out['repeatability_lines'] = torch.tensor([rep_lines], dtype=torch.float, device=device)
             out['loc_error_lines'] =  torch.tensor([loc_error_lines], dtype=torch.float, device=device)
 
@@ -459,13 +459,13 @@ class JointPointLineDetectorDescriptor(BaseModel):
         imgs = data["image"]
         device = data["image"].device
         batch_size = imgs.shape[0]
-        data_shape = imgs[0].shape
+        data_shape = imgs.shape[2:]
         warped_imgs = torch.empty(imgs.shape,dtype=torch.float, device=device)
-        Hs = torch.empty(imgs.shape,dtype=torch.float, device=device)
+        Hs = torch.empty((batch_size,3,3),dtype=torch.float, device=device)
         for i in range(batch_size):
             H = torch.tensor(sample_homography(data_shape,**default_H_params),dtype=torch.float, device=device)
             Hs[i] = H
-            warped_imgs[i] = warp_perspective(torch.tensor(imgs[i],device=device).unsqueeze(0),H.unsqueeze(0),data_shape, mode='bilinear')
+            warped_imgs[i] = warp_perspective(imgs[i].unsqueeze(0),H.unsqueeze(0),data_shape, mode='bilinear')
         with torch.no_grad():
             warped_outputs = self({"image": warped_imgs})
         return warped_outputs,Hs
