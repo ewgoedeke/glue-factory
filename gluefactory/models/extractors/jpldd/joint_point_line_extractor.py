@@ -46,8 +46,13 @@ class JointPointLineDetectorDescriptor(BaseModel):
             "descriptor_weight": 1
         },
         "line_detection": {
-            "do": False,
-
+            "do": True,
+            'line_detection_params': {
+                'merge': False,
+                'grad_nfa': True,
+                'filtering': 'normal',
+                'grad_thresh': 3,
+            },
         }
     }
 
@@ -211,7 +216,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
             line_distance_field = line_distance_field.squeeze()
 
         output["line_anglefield"] = line_angle_field
-        output["line_distancefield"] = line_distance_field 
+        output["line_distancefield"] = line_distance_field
 
         # Keypoint detection
         if self.conf.timeit:
@@ -244,7 +249,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
         # Extract Lines from Learned Part of the Network
         # Only Perform line detection when NOT in training mode
-        if self.conf.detect_lines:
+        if self.conf.line_detection.do and not self.training:
             if self.conf.timeit:
                 start_lines = time.time()
             lines = []
@@ -253,7 +258,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
             np_ll = output["line_anglefield"].cpu().numpy()
             for img, df, ll in zip(np_img, np_df, np_ll):
                 line = detect_afm_lines(
-                    img, df, ll, **self.conf.line_detection_params)
+                    img, df, ll, **self.conf.line_detection.line_detection_params)
                 lines.append(line)
             output['line_segments'] = lines
             # Use aliked points sampled from inbetween Line endpoints?
