@@ -13,7 +13,7 @@ from gluefactory.models.base_model import BaseModel
 from gluefactory.models.extractors.jpldd.backbone_encoder import AlikedEncoder, aliked_cfgs
 from gluefactory.models.extractors.jpldd.descriptor_head import SDDH
 from gluefactory.models.extractors.jpldd.keypoint_decoder import SMH
-from gluefactory.models.extractors.jpldd.keypoint_detection import DKD
+from gluefactory.models.extractors.jpldd.keypoint_detection import SimpleDetector
 from gluefactory.models.extractors.jpldd.utils import InputPadder, change_dict_key
 from gluefactory.models.extractors.jpldd.metrics import compute_pr, compute_loc_error, compute_repeatability
 
@@ -62,14 +62,9 @@ class JointPointLineDetectorDescriptor(BaseModel):
         # Load Network Components
         self.encoder_backbone = AlikedEncoder(aliked_model_cfg)
         self.keypoint_and_junction_branch = SMH(dim)  # using SMH from ALIKE here
-        self.dkd = DKD(radius=conf.nms_radius,
-                       top_k=-1 if conf.detection_threshold > 0 else conf.max_num_keypoints,
-                       scores_th=conf.detection_threshold,
-                       n_limit=(
-                           conf.max_num_keypoints
-                           if conf.max_num_keypoints > 0
-                           else self.n_limit_max
-                       ), )  # Differentiable Keypoint Detection from ALIKE
+        self.detector = SimpleDetector(nms_radius=conf.nms_radius,
+                                       num_keypoints=-1 if conf.detection_threshold > 0 else conf.max_num_keypoints,
+                                       threshold=conf.detection_threshold)
         # Keypoint and line descriptors
         self.descriptor_branch = SDDH(dim, K, M, gate=nn.SELU(inplace=True), conv2D=False, mask=False)
         self.line_descriptor = torch.lerp  # we take the endpoints of lines and interpolate to get the descriptor
@@ -189,7 +184,8 @@ class JointPointLineDetectorDescriptor(BaseModel):
         # Line DF Decoder
         if self.conf.timeit:
             start_line_df = time.time()
-            line_distance_field = self.denormalize_df(self.distance_field_branch(feature_map)) # denormalize as NN outputs normalized version which is focused on line neighborhood
+            line_distance_field = self.denormalize_df(self.distance_field_branch(
+                feature_map))  # denormalize as NN outputs normalized version which is focused on line neighborhood
             self.timings["line-df"].append(time.time() - start_line_df)
         else:
             line_distance_field = self.denormalize_df(self.distance_field_branch(feature_map))
@@ -204,27 +200,27 @@ class JointPointLineDetectorDescriptor(BaseModel):
             line_distance_field = line_distance_field.squeeze()
 
         output["line_anglefield"] = line_angle_field
-        output["line_distancefield"] = line_distance_field 
+        output["line_distancefield"] = line_distance_field
 
         # Keypoint detection
         if self.conf.timeit:
             start_keypoints = time.time()
-            keypoints, kptscores, scoredispersitys = self.dkd(
+            keypoints, kptscores = self.detector(
                 keypoint_and_junction_score_map,
             )
             self.timings["keypoint-detection"].append(time.time() - start_keypoints)
         else:
-            keypoints, kptscores, scoredispersitys = self.dkd(
+            keypoints, kptscores = self.detector(
                 keypoint_and_junction_score_map,
             )
+
         _, _, h, w = image.shape
         wh = torch.tensor([w, h], device=image.device)
         # no padding required,
         # can set detection_threshold=-1 and conf.max_num_keypoints -> HERE WE SET THESE VALUES SO WE CAN EXPECT SAME NUM!
-        output["keypoints"] = wh * (torch.stack(
-            keypoints) + 1) / 2.0
+        output["keypoints"] = torch.stack(
+            keypoints) + 0.5
         output["keypoint_scores"] = torch.stack(kptscores)
-        output["keypoint_score_dispersity"] = torch.stack(scoredispersitys)
 
         # Keypoint descriptors
         if self.conf.timeit:
@@ -264,7 +260,8 @@ class JointPointLineDetectorDescriptor(BaseModel):
         losses = {}
         metrics = {}
 
-        assert (0 <= pred["keypoint_and_junction_score_map"].min() and pred["keypoint_and_junction_score_map"].max() <= 1)
+        assert (0 <= pred["keypoint_and_junction_score_map"].min() and pred[
+            "keypoint_and_junction_score_map"].max() <= 1)
         assert (0 <= data["superpoint_heatmap"].min() and data["superpoint_heatmap"].max() <= 1)
         # Use Weighted BCE Loss for Point Heatmap
         keypoint_scoremap_loss = weighted_bce_loss(pred["keypoint_and_junction_score_map"],
@@ -335,7 +332,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
                 change_dict_key(aliked_state_dict, k, f"descriptor_branch.{k[10:]}")
             else:
                 continue
-        
+
         # load values
         self.load_state_dict(aliked_state_dict, strict=False)
 
