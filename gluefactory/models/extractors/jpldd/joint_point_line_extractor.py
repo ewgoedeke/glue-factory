@@ -218,8 +218,8 @@ class JointPointLineDetectorDescriptor(BaseModel):
         wh = torch.tensor([w, h], device=image.device)
         # no padding required,
         # can set detection_threshold=-1 and conf.max_num_keypoints -> HERE WE SET THESE VALUES SO WE CAN EXPECT SAME NUM!
-        output["keypoints"] = wh * (torch.stack(
-            keypoints) + 1) / 2.0
+        output["keypoints"] = torch.stack(
+            keypoints) + 0.5
         output["keypoint_scores"] = torch.stack(kptscores)
 
         # Keypoint descriptors
