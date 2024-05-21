@@ -19,7 +19,7 @@ from gluefactory.models.extractors.jpldd.metrics_points import compute_pr, compu
 import gluefactory.models.extractors.jpldd.metrics_lines as LineMetrics
 from gluefactory.datasets.homographies_deeplsd import sample_homography
 from kornia.geometry.transform import warp_perspective
-from gluefactory.models.extractors.jpldd.metrics import compute_pr, compute_loc_error, compute_repeatability
+from gluefactory.models.extractors.jpldd.metrics_points import compute_pr, compute_loc_error, compute_repeatability
 from gluefactory.models.extractors.jpldd.line_detection_lsd import detect_afm_lines
 
 default_H_params = {
@@ -446,9 +446,9 @@ class JointPointLineDetectorDescriptor(BaseModel):
             'repeatability_points': torch.tensor([rep_points], dtype=torch.float, device=device),
             'loc_error_points': torch.tensor([loc_error_points], dtype=torch.float, device=device),
         }
-        if "lines" in warped_outputs:
-            lines = pred["lines"]
-            warped_lines = warped_outputs["lines"]
+        if "line_segments" in warped_outputs:
+            lines = pred["line_segments"]
+            warped_lines = warped_outputs["line_segments"]
             rep_lines, loc_error_lines = LineMetrics.get_rep_and_loc_error(lines,warped_lines,Hs,predictions[0].shape)
             out['repeatability_lines'] = torch.tensor([rep_lines], dtype=torch.float, device=device)
             out['loc_error_lines'] =  torch.tensor([loc_error_lines], dtype=torch.float, device=device)
