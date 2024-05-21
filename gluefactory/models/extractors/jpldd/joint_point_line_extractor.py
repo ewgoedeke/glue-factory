@@ -255,11 +255,11 @@ class JointPointLineDetectorDescriptor(BaseModel):
             lines = []
             np_img = (data['image'].cpu().numpy()[:, 0] * 255).astype(np.uint8)
             np_df = output["line_distancefield"].cpu().numpy()
-            np_ll = output["line_anglefield"].cpu().numpy()
-            for img, df, ll in zip(np_img, np_df, np_ll):
-                line = detect_afm_lines(
+            np_al = output["line_anglefield"].cpu().numpy()
+            for img, df, ll in zip(np_img, np_df, np_al):
+                img_lines = detect_afm_lines(
                     img, df, ll, **self.conf.line_detection.line_detection_params)
-                lines.append(line)
+                lines.append(img_lines)
             output['line_segments'] = lines
             # Use aliked points sampled from inbetween Line endpoints?
             line_descriptors = None
