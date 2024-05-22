@@ -16,6 +16,7 @@ from gluefactory.models.extractors.jpldd.keypoint_decoder import SMH
 from gluefactory.models.extractors.jpldd.keypoint_detection import SimpleDetector, DKD
 from gluefactory.models.extractors.jpldd.utils import InputPadder, change_dict_key
 from gluefactory.models.extractors.jpldd.metrics import compute_pr, compute_loc_error, compute_repeatability
+from gluefactory.models.extractors.jpldd.line_detection_lsd import detect_afm_lines
 
 to_ctr = OmegaConf.to_container  # convert DictConfig to dict
 aliked_checkpoint_url = "https://github.com/Shiaoming/ALIKED/raw/main/models/{}.pth"
@@ -44,6 +45,15 @@ class JointPointLineDetectorDescriptor(BaseModel):
             "line_df_weight": 10,
             "keypoint_weight": 1,
             "descriptor_weight": 1
+        },
+        "line_detection": {
+            "do": True,
+            'line_detection_params': {
+                'merge': False,
+                'grad_nfa': True,
+                'filtering': 'normal',
+                'grad_thresh': 3,
+            },
         }
     }
 
@@ -111,6 +121,8 @@ class JointPointLineDetectorDescriptor(BaseModel):
                 "descriptor-branch": [],
                 "keypoint-detection": []
             }
+            if conf.line_detection.do:
+                self.timings["line-detection"] = []
 
         # load pretrained_elements if wanted (for now that only the ALIKED parts of the network)
         if conf.pretrained:
@@ -253,12 +265,23 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
         # Extract Lines from Learned Part of the Network
         # Only Perform line detection when NOT in training mode
-        if not self.training:
-            line_segments = None  # as endpoints
-            output["line_segments"] = line_segments
+        if self.conf.line_detection.do and not self.training:
+            if self.conf.timeit:
+                start_lines = time.time()
+            lines = []
+            np_img = (data['image'].cpu().numpy()[:, 0] * 255).astype(np.uint8)
+            np_df = output["line_distancefield"].cpu().numpy()
+            np_al = output["line_anglefield"].cpu().numpy()
+            for img, df, ll in zip(np_img, np_df, np_al):
+                img_lines = detect_afm_lines(
+                    img, df, ll, **self.conf.line_detection.line_detection_params)
+                lines.append(img_lines)
+            output['line_segments'] = lines
             # Use aliked points sampled from inbetween Line endpoints?
             line_descriptors = None
             output["line_descriptors"] = line_descriptors
+            if self.conf.timeit:
+                self.timings["line-detection"].append(time.time() - start_lines)
 
         if self.conf.timeit:
             self.timings["total-makespan"].append(time.time() - total_start)
