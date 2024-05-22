@@ -55,7 +55,7 @@ H_params = {
 ha = {
     'enable': False,
     'num_H': 100,
-    'mini_bs': 5,
+    'mini_bs': 3,
     'aggregation': 'mean',
 
 }
@@ -82,12 +82,13 @@ def get_dataset_and_loader(num_workers):  # folder where dataset images are plac
             'resize': [800, 800]
         },
         'train_batch_size': 1,  # prefix must match split mode
+        'val_batch_size': 1,  # prefix must match split mode
         'num_workers': num_workers,
-        'split': 'train'  # if implemented by dataset class gives different splits
+        'split': 'val'  # if implemented by dataset class gives different splits
     }
     omega_conf = OmegaConf.create(config)
     dataset = get_dataset(omega_conf.name)(omega_conf)
-    loader = dataset.get_data_loader(omega_conf.get('split', 'train'))
+    loader = dataset.get_data_loader(omega_conf.get('split', 'val'))
     return loader
 
 
