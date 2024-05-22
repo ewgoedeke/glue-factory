@@ -277,7 +277,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
                 line = detect_afm_lines(
                     img, df, ll, **self.conf.line_detection.line_detection_params)
                 lines.append(line)
-            output['line_segments'] = lines
+            output['lines'] = lines
             # Use aliked points sampled from inbetween Line endpoints?
             line_descriptors = None
             output["line_descriptors"] = line_descriptors
@@ -446,9 +446,9 @@ class JointPointLineDetectorDescriptor(BaseModel):
             'repeatability_points': torch.tensor([rep_points], dtype=torch.float, device=device),
             'loc_error_points': torch.tensor([loc_error_points], dtype=torch.float, device=device),
         }
-        if "line_segments" in warped_outputs:
-            lines = pred["line_segments"]
-            warped_lines = warped_outputs["line_segments"]
+        if "lines" in warped_outputs:
+            lines = pred["lines"]
+            warped_lines = warped_outputs["lines"]
             rep_lines, loc_error_lines = LineMetrics.get_rep_and_loc_error(lines,warped_lines,Hs.cpu().numpy(),predictions[0].shape)
             out['repeatability_lines'] = torch.tensor([rep_lines], dtype=torch.float, device=device)
             out['loc_error_lines'] =  torch.tensor([loc_error_lines], dtype=torch.float, device=device)

@@ -8,7 +8,7 @@ from gluefactory.geometry.line_utils import (
 from gluefactory.datasets.homographies import warp_points
 from gluefactory.datasets.homographies_deeplsd import warp_lines
 #from ..models.lbd import PyTLBD
-#from homography_est import LineSegment, ransac_line_homography
+from homography_est import LineSegment, ransac_line_homography
 
 
 num_lines_thresholds = [10, 25, 50, 100, 300]

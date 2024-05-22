@@ -22,11 +22,13 @@ from .utils import (
     eval_homography_dlt,
     eval_homography_robust,
     eval_matches_homography,
+    eval_matches_homography_lines,
     eval_poses,
 )
+from gluefactory.models.extractors.jpldd.metrics_lines import match_segments_1_to_1
 
 
-class HPatchesPipeline(EvalPipeline):
+class HPatchesLinePipeline(EvalPipeline):
     default_conf = {
         "data": {
             "batch_size": 1,
@@ -48,25 +50,8 @@ class HPatchesPipeline(EvalPipeline):
         },
     }
     export_keys = [
-        "keypoints0",
-        "keypoints1",
-        "keypoint_scores0",
-        "keypoint_scores1",
-        "matches0",
-        "matches1",
-        "matching_scores0",
-        "matching_scores1",
-    ]
-
-    optional_export_keys = [
         "lines0",
-        "lines1",
-        "orig_lines0",
-        "orig_lines1",
-        "line_matches0",
-        "line_matches1",
-        "line_matching_scores0",
-        "line_matching_scores1",
+        "lines1"
     ]
 
     def _init(self, conf):
@@ -97,37 +82,14 @@ class HPatchesPipeline(EvalPipeline):
         results = defaultdict(list)
 
         conf = self.conf.eval
-
-        test_thresholds = (
-            ([conf.ransac_th] if conf.ransac_th > 0 else [0.5, 1.0, 1.5, 2.0, 2.5, 3.0])
-            if not isinstance(conf.ransac_th, Iterable)
-            else conf.ransac_th
-        )
-        pose_results = defaultdict(lambda: defaultdict(list))
         cache_loader = CacheLoader({"path": str(pred_file), "collate": None}).eval()
         for i, data in enumerate(tqdm(loader)):
             pred = cache_loader(data)
             # Remove batch dimension
             data = map_tensor(data, lambda t: torch.squeeze(t, dim=0))
             # add custom evaluations here
-            
-
-            if "keypoints0" in pred:
-                results_i = eval_matches_homography(data, pred)
-                results_i = {**results_i, **eval_homography_dlt(data, pred)}
-            else:
-                results_i = {}
-            for th in test_thresholds:
-                pose_results_i = eval_homography_robust(
-                    data,
-                    pred,
-                    {"estimator": conf.estimator, "ransac_th": th},
-                )
-                [pose_results[th][k].append(v) for k, v in pose_results_i.items()]
-
+            results_i = eval_matches_homography_lines(data, pred)      
             # we also store the names for later reference
-            results_i["names"] = data["name"][0]
-            results_i["scenes"] = data["scene"][0]
 
             for k, v in results_i.items():
                 results[k].append(v)
@@ -141,34 +103,7 @@ class HPatchesPipeline(EvalPipeline):
                 continue
             summaries[f"m{k}"] = round(np.median(arr), 3)
 
-        auc_ths = [1, 3, 5]
-        best_pose_results, best_th = eval_poses(
-            pose_results, auc_ths=auc_ths, key="H_error_ransac", unit="px"
-        )
-        if "H_error_dlt" in results.keys():
-            dlt_aucs = AUCMetric(auc_ths, results["H_error_dlt"]).compute()
-            for i, ath in enumerate(auc_ths):
-                summaries[f"H_error_dlt@{ath}px"] = dlt_aucs[i]
-
-        results = {**results, **pose_results[best_th]}
-        summaries = {
-            **summaries,
-            **best_pose_results,
-        }
-
-        figures = {
-            "homography_recall": plot_cumulative(
-                {
-                    "DLT": results["H_error_dlt"],
-                    self.conf.eval.estimator: results["H_error_ransac"],
-                },
-                [0, 10],
-                unit="px",
-                title="Homography ",
-            )
-        }
-
-        return summaries, figures, results
+        return summaries, results
 
 
 if __name__ == "__main__":
@@ -176,7 +111,7 @@ if __name__ == "__main__":
     parser = get_eval_parser()
     args = parser.parse_intermixed_args()
 
-    default_conf = OmegaConf.create(HPatchesPipeline.default_conf)
+    default_conf = OmegaConf.create(HPatchesLinePipeline.default_conf)
 
     # mingle paths
     output_dir = Path(EVAL_PATH, dataset_name)
@@ -192,7 +127,7 @@ if __name__ == "__main__":
     experiment_dir = output_dir / name
     experiment_dir.mkdir(exist_ok=True)
 
-    pipeline = HPatchesPipeline(conf)
+    pipeline = HPatchesLinePipeline(conf)
     s, f, r = pipeline.run(
         experiment_dir, overwrite=args.overwrite, overwrite_eval=args.overwrite_eval
     )
