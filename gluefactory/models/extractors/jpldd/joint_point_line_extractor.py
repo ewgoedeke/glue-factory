@@ -8,6 +8,7 @@ import numpy as np
 
 from omegaconf import OmegaConf
 
+from gluefactory import load_experiment
 from gluefactory.models import get_model
 from gluefactory.models.base_model import BaseModel
 from gluefactory.models.extractors.jpldd.backbone_encoder import AlikedEncoder, aliked_cfgs
@@ -36,7 +37,7 @@ default_H_params = {
 }
 
 to_ctr = OmegaConf.to_container  # convert DictConfig to dict
-aliked_checkpoint_url = "https://github.com/Shiaoming/ALIKED/raw/main/models/{}.pth"
+aliked_checkpoint_url = "https://github.com/Shiaoming/ALIKED/raw/main/models/{}.pth"  # used for training based on ALIKED weights
 logger = logging.getLogger(__file__)
 
 
@@ -47,20 +48,18 @@ class JointPointLineDetectorDescriptor(BaseModel):
         "max_num_keypoints": 1000,  # setting for training, for eval: -1
         "detection_threshold": -1,  # setting for training, for eval: 0.2
         "force_num_keypoints": False,
-        "pretrained": True,
-        "pretrain_kp_decoder": True,
-        "nms_radius": 2,
-        "line_neighborhood": 5,
-        "timeit": True,  # override timeit: False from BaseModel
-        "train_descriptors": {
-            "do": True,  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
-        },
-        "lambda_weighted_bce": 200,
-        "loss_weights": {
+        "training": {  # training settings
+          "do": False,  # switch to turn off other settings regarding training = "training mode"
+          "aliked_pretrained": True,
+          "pretrain_kp_decoder": True,
+          "train_descriptors": True,  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
+          "lambda_weighted_bce": 200,
+          "loss_weights": {
             "line_af_weight": 10,
             "line_df_weight": 10,
             "keypoint_weight": 1,
             "descriptor_weight": 1
+        },
         },
         "line_detection": {
             "do": True,
@@ -70,7 +69,11 @@ class JointPointLineDetectorDescriptor(BaseModel):
                 'filtering': 'normal',
                 'grad_thresh': 3,
             },
-        }
+        },
+        "checkpoint": "checkpoint_best.tar",  # if given and non-null, load model checkpoint
+        "nms_radius": 2,
+        "line_neighborhood": 5,
+        "timeit": True,  # override timeit: False from BaseModel
     }
 
     n_limit_max = 20000  # taken from ALIKED which gives max num keypoints to detect!
@@ -85,7 +88,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         dim = aliked_model_cfg["dim"]
         K = aliked_model_cfg["K"]
         M = aliked_model_cfg["M"]
-        self.lambda_valid_kp = conf.lambda_weighted_bce
+        self.lambda_valid_kp = conf.training.lambda_weighted_bce
         # Load Network Components
         self.encoder_backbone = AlikedEncoder(aliked_model_cfg)
         self.keypoint_and_junction_branch = SMH(dim)  # using SMH from ALIKE here
@@ -138,18 +141,24 @@ class JointPointLineDetectorDescriptor(BaseModel):
                 self.timings["line-detection"] = []
 
         # load pretrained_elements if wanted (for now that only the ALIKED parts of the network)
-        if conf.pretrained:
+        if conf.training.do and conf.training.aliked_pretrained:
             logger.warning("Load pretrained weights for aliked parts...")
             old_test_val1 = self.encoder_backbone.conv1.weight.data.clone()
-            self.load_pretrained_elements()
+            self.load_pretrained_aliked_elements()
             assert not torch.all(torch.eq(self.encoder_backbone.conv1.weight.data.clone(),
                                           old_test_val1)).item()  # test if weights really loaded!
 
         # Initialize Lightweight ALIKED model to perform OTF GT generation for descriptors if training
-        if conf.train_descriptors.do:
+        if conf.training.do and conf.training.train_descriptors:
             logger.warning("Load ALiked Lightweight model for descriptor training...")
             self.aliked_lw = get_model("jpldd.aliked_light")(
                 aliked_model_cfg).eval()  # use same config than for our network parts
+
+        # load model checkpoint if given -> only load weights
+        if conf.checkpoint is not None:
+            logger.warning(f"Load model parameters from checkpoint {conf.checkpoint}")
+            st_dict = torch.load(conf.checkpoint, map_location=torch.device('cpu'))
+            self.load_state_dict(st_dict, strict=False)
 
     # Utility methods for line df and af with deepLSD
     def normalize_df(self, df):
@@ -262,7 +271,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
             self.timings["descriptor-branch"].append(time.time() - start_desc)
         else:
             keypoint_descriptors, offsets = self.descriptor_branch(feature_map, keypoints)
-        output["keypoint_descriptors"] = torch.stack(keypoint_descriptors)  # B N D
+        output["descriptors"] = torch.stack(keypoint_descriptors)  # B N D
 
         # Extract Lines from Learned Part of the Network
         # Only Perform line detection when NOT in training mode
@@ -312,12 +321,12 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
         losses["keypoint_and_junction_score_map"] = keypoint_scoremap_loss
         # Descriptor Loss: expect aliked descriptors as GT
-        if self.conf.train_descriptors.do:
+        if self.conf.training.train_descriptors:
             data = {**data,
                     **self.get_groundtruth_descriptors({"keypoints": pred["keypoints"], "image": data["image"]})}
             keypoint_descriptor_loss = F.l1_loss(pred["keypoint_descriptors"], data["aliked_descriptors"],
                                                  reduction='none').mean(dim=(1, 2))
-            losses["keypoint_descriptors"] = keypoint_descriptor_loss
+            losses["descriptors"] = keypoint_descriptor_loss
 
         # use angular loss for distance field
         af_diff = (data["deeplsd_angle_field"] - pred["line_anglefield"])
@@ -334,11 +343,11 @@ class JointPointLineDetectorDescriptor(BaseModel):
         losses["line_distancefield"] = line_df_loss
 
         # Compute overall loss
-        overall_loss = (self.conf.loss_weights.keypoint_weight * keypoint_scoremap_loss
-                        + self.conf.loss_weights.line_af_weight * line_af_loss
-                        + self.conf.loss_weights.line_df_weight * line_df_loss)
-        if self.conf.train_descriptors.do:
-            overall_loss += self.conf.loss_weights.descriptor_weight * keypoint_descriptor_loss
+        overall_loss = (self.conf.training.loss_weights.keypoint_weight * keypoint_scoremap_loss
+                        + self.conf.training.loss_weights.line_af_weight * line_af_loss
+                        + self.conf.training.loss_weights.line_df_weight * line_df_loss)
+        if self.conf.training.train_descriptors:
+            overall_loss += self.conf.training.loss_weights.descriptor_weight * keypoint_descriptor_loss
         losses["total"] = overall_loss
 
         # add metrics if not in training mode
@@ -348,14 +357,14 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
     def get_groundtruth_descriptors(self, pred: dict):
         """
-        Takes keypoints from predictions (best 100 + 100 random) + computes ground-truth descriptors for it.
+        Takes keypoints from predictions + computes ground-truth descriptors for it.
         """
         assert pred.get('image', None) is not None and pred.get('keypoints', None) is not None
         with torch.no_grad():
             descriptors = self.aliked_lw(pred)
         return descriptors
 
-    def load_pretrained_elements(self):
+    def load_pretrained_aliked_elements(self):
         """
         Loads ALIKED weights for backbone encoder, score_head(SMH) and SDDH
         """
@@ -367,7 +376,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
             if k.startswith("block") or k.startswith("conv"):
                 change_dict_key(aliked_state_dict, k, f"encoder_backbone.{k}")
             elif k.startswith("score_head"):
-                if not self.conf.pretrain_kp_decoder:
+                if not self.conf.training.pretrain_kp_decoder:
                     del aliked_state_dict[k]
                 else:
                     change_dict_key(aliked_state_dict, k, f"keypoint_and_junction_branch.{k}")
@@ -394,7 +403,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         """
         sd = super().state_dict(*args, **kwargs)
         # don't store lightweight aliked model for descriptor gt computation
-        if self.conf.train_descriptors.do:
+        if self.conf.train_descriptors:
             for k in list(sd.keys()):
                 if k.startswith("aliked_lw"):
                     del sd[k]

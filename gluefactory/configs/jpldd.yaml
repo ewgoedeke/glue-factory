@@ -25,18 +25,19 @@ model:
     model_name: "aliked-n16"
     line_neighborhood: 5
     max_num_keypoints: 1000  # setting for training, for eval: -1
-    pretrained: True
-    pretrain_kp_decoder: False
+    training:
+        do: True
+        aliked_pretrained: True
+        train_descriptors: True  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
+        pretrain_kp_decoder: False
+        lambda_weighted_bce: 200
+        loss_weights:
+            line_af_weight: 10
+            line_df_weight: 10
+            keypoint_weight: 1
+            descriptor_loss: 1
+    checkpoint: null  # if given load model weights from this checkpoint
     timeit: True  # override timeit: False from BaseModel
-    train_descriptors:
-        do: False  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
-        device: null # device to house the lightweight ALIKED model
-    lambda_weighted_bce: 200
-    loss_weights:
-        line_af_weight: 10
-        line_df_weight: 10
-        keypoint_weight: 1
-        descriptor_loss: 1
 train:
     load_experiment: null  # initialize the model from a previous experiment (take weights)
     seed: 0
