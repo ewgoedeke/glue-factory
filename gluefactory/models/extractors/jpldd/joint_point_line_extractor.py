@@ -13,7 +13,7 @@ from gluefactory.models.base_model import BaseModel
 from gluefactory.models.extractors.jpldd.backbone_encoder import AlikedEncoder, aliked_cfgs
 from gluefactory.models.extractors.jpldd.descriptor_head import SDDH
 from gluefactory.models.extractors.jpldd.keypoint_decoder import SMH
-from gluefactory.models.extractors.jpldd.keypoint_detection import SimpleDetector
+from gluefactory.models.extractors.jpldd.keypoint_detection import SimpleDetector, DKD
 from gluefactory.models.extractors.jpldd.utils import InputPadder, change_dict_key
 from gluefactory.models.extractors.jpldd.metrics import compute_pr, compute_loc_error, compute_repeatability
 
@@ -36,6 +36,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         "timeit": True,  # override timeit: False from BaseModel
         "train_descriptors": {
             "do": True,  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
+            "gt_aliked_model": "aliked-n32"
         },
         "lambda_weighted_bce": 200,
         "loss_weights": {
@@ -62,9 +63,17 @@ class JointPointLineDetectorDescriptor(BaseModel):
         # Load Network Components
         self.encoder_backbone = AlikedEncoder(aliked_model_cfg)
         self.keypoint_and_junction_branch = SMH(dim)  # using SMH from ALIKE here
-        self.detector = SimpleDetector(nms_radius=conf.nms_radius,
-                                       num_keypoints=-1 if conf.detection_threshold > 0 else conf.max_num_keypoints,
-                                       threshold=conf.detection_threshold)
+        #self.detector = SimpleDetector(nms_radius=conf.nms_radius,
+        #                               num_keypoints=-1 if conf.detection_threshold > 0 else conf.max_num_keypoints,
+        #                               threshold=conf.detection_threshold)
+        self.dkd = DKD(radius=conf.nms_radius,
+                       top_k=-1 if conf.detection_threshold > 0 else conf.max_num_keypoints,
+                       scores_th=conf.detection_threshold,
+                       n_limit=(
+                           conf.max_num_keypoints
+                           if conf.max_num_keypoints > 0
+                           else self.n_limit_max
+                       ), )  # Differentiable Keypoint Detection from ALIKE
         # Keypoint and line descriptors
         self.descriptor_branch = SDDH(dim, K, M, gate=nn.SELU(inplace=True), conv2D=False, mask=False)
         self.line_descriptor = torch.lerp  # we take the endpoints of lines and interpolate to get the descriptor
@@ -114,8 +123,16 @@ class JointPointLineDetectorDescriptor(BaseModel):
         # Initialize Lightweight ALIKED model to perform OTF GT generation for descriptors if training
         if conf.train_descriptors.do:
             logger.warning("Load ALiked Lightweight model for descriptor training...")
+            aliked_gt_cfg = {
+                "model_name": self.conf.train_descriptors.gt_aliked_model,
+                "max_num_keypoints": self.conf.max_num_keypoints,
+                "detection_threshold": self.conf.detection_threshold,
+                "force_num_keypoints": False,
+                "pretrained": True,
+                "nms_radius": self.conf.nms_radius,
+            }
             self.aliked_lw = get_model("jpldd.aliked_light")(
-                aliked_model_cfg).eval()  # use same config than for our network parts
+                aliked_gt_cfg).eval()
 
     # Utility methods for line df and af with deepLSD
     def normalize_df(self, df):
@@ -205,30 +222,33 @@ class JointPointLineDetectorDescriptor(BaseModel):
         # Keypoint detection
         if self.conf.timeit:
             start_keypoints = time.time()
-            keypoints, kptscores = self.detector(
+            keypoints, kptscores, _ = self.dkd(
                 keypoint_and_junction_score_map,
             )
             self.timings["keypoint-detection"].append(time.time() - start_keypoints)
         else:
-            keypoints, kptscores = self.detector(
+            keypoints, kptscores, _ = self.dkd(
                 keypoint_and_junction_score_map,
             )
+
+        # raw output of DKD needed to generate GT-Descriptors
+        if self.conf.train_descriptors.do:
+            output["keypoints_raw"] = keypoints
 
         _, _, h, w = image.shape
         wh = torch.tensor([w, h], device=image.device)
         # no padding required,
         # can set detection_threshold=-1 and conf.max_num_keypoints -> HERE WE SET THESE VALUES SO WE CAN EXPECT SAME NUM!
-        output["keypoints"] = torch.stack(
-            keypoints) + 0.5
+        output["keypoints"] = wh * (torch.stack(keypoints) + 1.) / 2.0
         output["keypoint_scores"] = torch.stack(kptscores)
 
         # Keypoint descriptors
         if self.conf.timeit:
             start_desc = time.time()
-            keypoint_descriptors, offsets = self.descriptor_branch(feature_map, keypoints)
+            keypoint_descriptors, _ = self.descriptor_branch(feature_map, keypoints)
             self.timings["descriptor-branch"].append(time.time() - start_desc)
         else:
-            keypoint_descriptors, offsets = self.descriptor_branch(feature_map, keypoints)
+            keypoint_descriptors, _ = self.descriptor_branch(feature_map, keypoints)
         output["keypoint_descriptors"] = torch.stack(keypoint_descriptors)  # B N D
 
         # Extract Lines from Learned Part of the Network
@@ -271,7 +291,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         # Descriptor Loss: expect aliked descriptors as GT
         if self.conf.train_descriptors.do:
             data = {**data,
-                    **self.get_groundtruth_descriptors({"keypoints": pred["keypoints"], "image": data["image"]})}
+                    **self.get_groundtruth_descriptors({"keypoints": pred["keypoints_raw"], "image": data["image"]})}
             keypoint_descriptor_loss = F.l1_loss(pred["keypoint_descriptors"], data["aliked_descriptors"],
                                                  reduction='none').mean(dim=(1, 2))
             losses["keypoint_descriptors"] = keypoint_descriptor_loss
