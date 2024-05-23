@@ -32,20 +32,20 @@ class JointPointLineDetectorDescriptor(BaseModel):
         "detection_threshold": -1,  # setting for training, for eval: 0.2
         "force_num_keypoints": False,
         "training": {  # training settings
-          "do": False,  # switch to turn off other settings regarding training = "training mode"
-          "aliked_pretrained": True,
-          "pretrain_kp_decoder": True,
-          "train_descriptors": {
-            "do": True,  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
-            "gt_aliked_model": "aliked-n32"
-        },  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
-          "lambda_weighted_bce": 200,
-          "loss_weights": {
-            "line_af_weight": 10,
-            "line_df_weight": 10,
-            "keypoint_weight": 1,
-            "descriptor_weight": 1
-          },
+            "do": False,  # switch to turn off other settings regarding training = "training mode"
+            "aliked_pretrained": True,
+            "pretrain_kp_decoder": True,
+            "train_descriptors": {
+                "do": True,  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
+                "gt_aliked_model": "aliked-n32"
+            },  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
+            "lambda_weighted_bce": 200,
+            "loss_weights": {
+                "line_af_weight": 10,
+                "line_df_weight": 10,
+                "keypoint_weight": 1,
+                "descriptor_weight": 1
+            },
         },
         "line_detection": {
             "do": True,
@@ -58,7 +58,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         },
         "checkpoint": "checkpoint_best.tar",  # if given and non-null, load model checkpoint
         "nms_radius": 2,
-        "line_neighborhood": 5, # used to normalize / denormalize line distance field
+        "line_neighborhood": 5,  # used to normalize / denormalize line distance field
         "timeit": True,  # override timeit: False from BaseModel
     }
 
@@ -138,7 +138,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
                                           old_test_val1)).item()  # test if weights really loaded!
 
         # Initialize Lightweight ALIKED model to perform OTF GT generation for descriptors if training
-        if conf.training.do and conf.training.train_descriptors:
+        if conf.training.do and conf.training.train_descriptors.do:
             logger.warning("Load ALiked Lightweight model for descriptor training...")
             aliked_gt_cfg = {
                 "model_name": self.conf.training.train_descriptors.gt_aliked_model,
@@ -255,7 +255,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
             )
 
         # raw output of DKD needed to generate GT-Descriptors
-        if self.conf.train_descriptors.do:
+        if self.conf.training.train_descriptors.do:
             output["keypoints_raw"] = keypoints
 
         _, _, h, w = image.shape
@@ -326,7 +326,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         if self.conf.training.train_descriptors.do:
             data = {**data,
                     **self.get_groundtruth_descriptors({"keypoints": pred["keypoints_raw"], "image": data["image"]})}
-            keypoint_descriptor_loss = F.l1_loss(pred["keypoint_descriptors"], data["aliked_descriptors"],
+            keypoint_descriptor_loss = F.l1_loss(pred["descriptors"], data["aliked_descriptors"],
                                                  reduction='none').mean(dim=(1, 2))
             losses["descriptors"] = keypoint_descriptor_loss
 
@@ -405,7 +405,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         """
         sd = super().state_dict(*args, **kwargs)
         # don't store lightweight aliked model for descriptor gt computation
-        if self.conf.train_descriptors.do:
+        if self.conf.training.train_descriptors.do:
             for k in list(sd.keys()):
                 if k.startswith("aliked_lw"):
                     del sd[k]
