@@ -24,23 +24,24 @@ model:
     name: jpldd.joint_point_line_extractor
     model_name: "aliked-n16"
     line_neighborhood: 5
-    max_num_keypoints: 1024  # setting for training, for eval: -1
-    pretrained: True
-    pretrain_kp_decoder: True
-    nms_radius: 8
-    detection_threshold: -1
+    max_num_keypoints: 1000  # setting for training, for eval: -1
+    training:
+        do: True
+        aliked_pretrained: True
+        pretrain_kp_decoder: True
+        train_descriptors:
+            do: True # if train is True, initialize ALIKED Light model form OTF Descriptor GT
+            gt_aliked_model: "aliked-n32"
+        lambda_weighted_bce: 200
+        loss_weights:
+            line_af_weight: 5
+            line_df_weight: 5
+            keypoint_weight: 1
+            descriptor_loss: 1
+    checkpoint: null  # if given load model weights from this checkpoint
     timeit: True  # override timeit: False from BaseModel
-    train_descriptors:
-        do: True  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
-        gt_aliked_model: "aliked-n32"
-    lambda_weighted_bce: 200
-    loss_weights:
-        line_af_weight: 5
-        line_df_weight: 5
-        keypoint_weight: 1
-        descriptor_loss: 1
 train:
-    load_experiment: "rk_jpldd_07_correct_gt_step2"  # initialize the model from a previous experiment (take weights)
+    # load_experiment: "rk_jpldd_07_correct_gt_step2"  # initialize the model from a previous experiment (take weights)
     seed: 0
     epochs: 50
     log_every_iter: 4
@@ -59,5 +60,4 @@ train:
     #    n_steps: 4
     submodules: []
     timeit: True    # print jpldd model mean timings every epoch
-    # clip_grad: 10  # Use only with mixed precision
-    #load_experiment: jpldd_1
+
