@@ -8,7 +8,6 @@ import numpy as np
 
 from omegaconf import OmegaConf
 
-from gluefactory import load_experiment
 from gluefactory.models import get_model
 from gluefactory.models.base_model import BaseModel
 from gluefactory.models.extractors.jpldd.backbone_encoder import AlikedEncoder, aliked_cfgs
@@ -56,7 +55,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
                 'grad_thresh': 3,
             },
         },
-        "checkpoint": "checkpoint_best.tar",  # if given and non-null, load model checkpoint
+        "checkpoint": "rk_jpldd_04/checkpoint_best.tar",  # if given and non-null, load model checkpoint
         "nms_radius": 2,
         "line_neighborhood": 5,  # used to normalize / denormalize line distance field
         "timeit": True,  # override timeit: False from BaseModel
@@ -154,8 +153,8 @@ class JointPointLineDetectorDescriptor(BaseModel):
         # load model checkpoint if given -> only load weights
         if conf.checkpoint is not None:
             logger.warning(f"Load model parameters from checkpoint {conf.checkpoint}")
-            st_dict = torch.load(conf.checkpoint, map_location=torch.device('cpu'))
-            self.load_state_dict(st_dict, strict=False)
+            chkpt = torch.load(conf.checkpoint, map_location=torch.device('cpu'))
+            self.load_state_dict(chkpt["model"], strict=True)
 
     # Utility methods for line df and af with deepLSD
     def normalize_df(self, df):
