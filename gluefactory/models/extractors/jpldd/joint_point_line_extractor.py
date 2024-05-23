@@ -27,6 +27,8 @@ class JointPointLineDetectorDescriptor(BaseModel):
     # currently contains only ALIKED
     default_conf = {
         "aliked_model_name": "aliked-n16",
+        "line_df_decoder_channels": 32,
+        "line_af_decoder_channels": 32,
         "max_num_keypoints": 1000,  # setting for training, for eval: -1
         "detection_threshold": -1,  # setting for training, for eval: 0.2
         "force_num_keypoints": False,
@@ -73,8 +75,6 @@ class JointPointLineDetectorDescriptor(BaseModel):
         dim = aliked_model_cfg["dim"]
         K = aliked_model_cfg["K"]
         M = aliked_model_cfg["M"]
-        DF_DECODER_CHANNELS = 32
-        AF_DECODER_CHANNELS = 32
         self.lambda_valid_kp = conf.training.lambda_weighted_bce
         # Load Network Components
         self.encoder_backbone = AlikedEncoder(aliked_model_cfg)
@@ -92,23 +92,23 @@ class JointPointLineDetectorDescriptor(BaseModel):
         self.line_descriptor = torch.lerp  # we take the endpoints of lines and interpolate to get the descriptor
         # Line Attraction Field information (Line Distance Field and Angle Field)
         self.distance_field_branch = nn.Sequential(
-            nn.Conv2d(dim, DF_DECODER_CHANNELS, kernel_size=3, padding=1),
+            nn.Conv2d(dim, conf.line_df_decoder_channels, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.BatchNorm2d(DF_DECODER_CHANNELS),
-            nn.Conv2d(DF_DECODER_CHANNELS, DF_DECODER_CHANNELS, kernel_size=3, padding=1),
+            nn.BatchNorm2d(conf.line_df_decoder_channels),
+            nn.Conv2d(conf.line_df_decoder_channels, conf.line_df_decoder_channels, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.BatchNorm2d(DF_DECODER_CHANNELS),
-            nn.Conv2d(DF_DECODER_CHANNELS, 1, kernel_size=1),
+            nn.BatchNorm2d(conf.line_df_decoder_channels),
+            nn.Conv2d(conf.line_df_decoder_channels, 1, kernel_size=1),
             nn.ReLU(),
         )
         self.angle_field_branch = nn.Sequential(
-            nn.Conv2d(dim, AF_DECODER_CHANNELS, kernel_size=3, padding=1),
+            nn.Conv2d(dim, conf.line_af_decoder_channels, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.BatchNorm2d(AF_DECODER_CHANNELS),
-            nn.Conv2d(AF_DECODER_CHANNELS, AF_DECODER_CHANNELS, kernel_size=3, padding=1),
+            nn.BatchNorm2d(conf.line_af_decoder_channels),
+            nn.Conv2d(conf.line_af_decoder_channels, conf.line_af_decoder_channels, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.BatchNorm2d(AF_DECODER_CHANNELS),
-            nn.Conv2d(AF_DECODER_CHANNELS, 1, kernel_size=1),
+            nn.BatchNorm2d(conf.line_af_decoder_channels),
+            nn.Conv2d(conf.line_af_decoder_channels, 1, kernel_size=1),
             nn.Sigmoid(),
         )
 
