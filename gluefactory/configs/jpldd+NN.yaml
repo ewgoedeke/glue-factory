@@ -2,12 +2,14 @@ model:
   name: two_view_pipeline
   extractor:
     name: extractors.jpldd.joint_point_line_extractor
+    model_name: "aliked-n16"
+    line_neighborhood: 5
+    max_num_keypoints: 2048
+    nms_radius: 8
     training:
       do: False
-    max_num_keypoints: 2048
-    detection_threshold: 0.0
-    nms_radius: 3
-    checkpoint: rk_jpldd_04/checkpoint_best.tar
+    checkpoint: "~/team-folder/outputs/training/rk_jpldd_08_correct_gt_step3"  # if given load model weights from this checkpoint
+    timeit: False  # override timeit: False from BaseModel
   matcher:
     name: matchers.nearest_neighbor_matcher
 benchmarks:
@@ -26,3 +28,4 @@ benchmarks:
     model:
       extractor:
         max_num_keypoints: 1024 # overwrite config above
+        nms_radius: 4
