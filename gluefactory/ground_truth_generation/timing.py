@@ -3,6 +3,7 @@ Run the homography adaptation with Superpoint for all images in the minidepth da
 Goal: create groundtruth with superpoint. Format: stores groundtruth for every image in a separate file.
 """
 
+import gc
 import argparse
 
 import numpy as np
@@ -18,18 +19,19 @@ from gluefactory.models.extractors.superpoint_open import SuperPoint
 from omegaconf import OmegaConf
 
 from gluefactory.models import get_model
+from gluefactory.models.lines.deeplsd import DeepLSD
+from gluefactory.utils.image import numpy_image_to_torch
+from gluefactory.utils.tensor import batch_to_device
 
 model_configs = {
     "aliked": {
         "name": 'extractors.aliked',
-        "trainable": False,
         "max_num_keypoints": 1024,
-        "nms_radius": 4,
-        "detection_threshold": -1,
-        "trainings": {'do': False},
-        "channels": [64, 64, 128, 128, 256],
-        "dense_outputs": None,
-        "weights": None,  # local path of pretrained weights
+        "model_name": "aliked-n16",
+        "detection_threshold": 0.2,
+        "force_num_keypoints": False,
+        "pretrained": True,
+        "nms_radius": 2
     },
 
     "sp": {
@@ -90,12 +92,10 @@ model_configs = {
         "line_detection": {
             "do": True,
         },
-        # "checkpoint": "../../../teamfolder/outputs/training/rk_jpldd_08_correct_gt_step3/checkpoint_best.tar",
-        "checkpoint": "../../../teamfolder/outputs/training/rk_jpldd_09_pretrained_faster/checkpoint_best.tar",
         "nms_radius": 2,
         "line_neighborhood": 5,  # used to normalize / denormalize line distance field
         "timeit": False,  # override timeit: False from BaseModel
-        # "line_df_decoder_channels": 64,
+        # "line_df_decoder_channels": 64, # uncomment it for models having the old number of channels
         # "line_af_decoder_channels": 64,
     }
 }
@@ -118,17 +118,14 @@ def get_dataset_and_loader(num_workers):  # folder where dataset images are plac
     return loader
 
 
-def run_measurement(dataloader, model, num_s, name):
+def run_measurement(dataloader, model, num_s, name, device):
     count = 0
     timings = []
     for img in tqdm(dataloader):
         if torch.cuda.is_available():
-            # scale = img['image'].new_tensor([0.299, 0.587, 0.114]).view(1, 3, 1, 1)
-            # gs_image = (img['image'] * scale).sum(1, keepdim=True)
-            # img = gs_image.to('cuda')
-            img['image'] = img['image'].to('cuda')
             torch.cuda.synchronize()
 
+        img = batch_to_device(img, device, non_blocking=True)
         with torch.no_grad():
             start = time.time()
             pred = model(img)
@@ -167,6 +164,6 @@ if __name__ == "__main__":
     model = get_model(model_name)(config)
     model.eval().to(device)
 
-    run_measurement(dataloader, model, args.num_s, model_name)
+    run_measurement(dataloader, model, args.num_s, model_name, device)
 
 

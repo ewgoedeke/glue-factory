@@ -38,6 +38,8 @@ model:
             line_df_weight: 5
             keypoint_weight: 1
             descriptor_loss: 1
+    line_detection:
+      do: False
     checkpoint: null  # if given load model weights from this checkpoint
     timeit: True  # override timeit: False from BaseModel
 train:
