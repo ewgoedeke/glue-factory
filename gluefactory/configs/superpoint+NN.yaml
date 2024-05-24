@@ -18,7 +18,7 @@ benchmarks:
             ransac_th: 1.0
     hpatches:
         eval:
-            estimator: opencv
+            estimator: poselib
             ransac_th: -1
         model:
             extractor:
