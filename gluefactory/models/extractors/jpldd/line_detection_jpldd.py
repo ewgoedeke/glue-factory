@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from gluefactory.models.extractors.jpldd.line_utils import merge_lines
 
 def get_valid_lines(
     lines, 
@@ -12,16 +13,21 @@ def get_valid_lines(
     a_diff_thresh=np.pi/20, 
     refinement_a_diff_thresh=np.pi/60,
     a_std_thresh=np.pi/30,
+    a_inlier_thresh=0.5,
     r_radius=5,
     b_diff_thresh=5,
+    min_len=5,
     merge=False,
+    merge_thresh=4,
     check_sample=False,
 ):
     '''
     lines: (N, 2, 2) -> each of the N elements: [[x1, x2], [y1, y2]]
     '''
-    
-    validity = ((lines[:, 0, 0] != lines[:, 0, 1]) & (lines[:, 1, 0] != lines[:, 1, 1])).to(lines.device)
+
+    sq_line_len = (lines[:, 0, 0] - lines[:, 0, 1])**2 + (lines[:, 1, 0] - lines[:, 1, 1])**2
+    validity = (lines[:, 0, 0] != lines[:, 0, 1]) & (lines[:, 1, 0] != lines[:, 1, 1])
+    validity = validity & (sq_line_len >= (min_len ** 2))
     lines = lines[validity]
 
     offsets = torch.linspace(0, 1, n_samples).view(1, 1, -1).to(lines.device)
@@ -55,17 +61,25 @@ def get_valid_lines(
     direction = torch.remainder(torch.atan(slope), torch.pi)
 
     inlier_indices = points < df_thresh
-    inlier_ratio = inlier_indices.sum(dim=-1).float() / xs.shape[-1]
+    inlier_ratio = inlier_indices.sum(dim=-1).float() / inlier_indices.shape[-1]
     
     valid_angles = angles
+    inlier_angle_indices = torch.remainder(torch.abs(valid_angles[0] - direction.unsqueeze(-1)), np.pi).unsqueeze(0) < a_diff_thresh
+    angle_inlier_ratio = inlier_angle_indices.sum(dim=-1).float() / inlier_angle_indices.shape[-1]
     
     crit1 = points.mean(dim=-1) < df_thresh
     crit2 = valid_angles.std(dim=-1) < a_std_thresh
     crit3 = inlier_ratio > inlier_thresh
     crit4 = torch.remainder(torch.abs(valid_angles.mean(dim=-1) - direction), np.pi) < a_diff_thresh
+    crit5 = angle_inlier_ratio > a_inlier_thresh
 
-    validity = crit1 & crit2 & crit3 & crit4
+    validity = crit1 & crit2 & crit3 & crit4 & crit5
     lines = lines.unsqueeze(0)[validity]
+    
+    if merge:
+        new_lines = lines.mT
+        merged_lines = merge_lines(new_lines, thresh=merge_thresh, overlap_thresh=0.).float()
+        lines = merged_lines.mT
 
     return lines
 
@@ -79,8 +93,12 @@ def detect_jpldd_lines(
     r_ratio=0.1, 
     a_diff_thresh=np.pi/20,
     a_std_thresh=np.pi/30,
+    a_inlier_thresh=0.5,
     r_radius=5,
     b_diff_thresh=5,
+    min_len=10,
+    merge=False,
+    merge_thresh=4
 ):
     junctions = torch.zeros_like(keypoints).to(keypoints.device)
     junctions[:, 0], junctions[:, 1] = keypoints[:, 1].clone(), keypoints[:, 0].clone()
@@ -96,7 +114,10 @@ def detect_jpldd_lines(
         inlier_thresh=inlier_thresh / 2,
         a_diff_thresh=a_diff_thresh * 2,
         a_std_thresh=a_std_thresh * 3,
+        a_inlier_thresh=a_inlier_thresh / 3,
         r_radius = 0,
+        min_len=min_len,
+        merge=False
     )
     valid_lines = get_valid_lines(
         prelim_valid_lines, df, af,
@@ -106,8 +127,12 @@ def detect_jpldd_lines(
         r_ratio=r_ratio,
         a_diff_thresh=a_diff_thresh,
         a_std_thresh=a_std_thresh,
+        a_inlier_thresh=a_inlier_thresh,
         r_radius=r_radius,
         b_diff_thresh=b_diff_thresh,
+        min_len=min_len,
+        merge=merge,
+        merge_thresh=merge_thresh
     )
 
     return valid_lines

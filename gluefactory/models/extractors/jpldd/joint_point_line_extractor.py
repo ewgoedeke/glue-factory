@@ -278,8 +278,8 @@ class JointPointLineDetectorDescriptor(BaseModel):
                 start_lines = time.time()
             lines = []
             np_img = (data['image'].cpu().numpy()[:, 0] * 255).astype(np.uint8)
-            np_df = output["line_distancefield"]
-            np_al = output["line_anglefield"]
+            np_df = output["line_distancefield"]#.cpu().numpy()
+            np_al = output["line_anglefield"]#.cpu().numpy()
             for img, df, ll in zip(np_img, np_df, np_al):
                 img_lines = detect_jpldd_lines(
                     np_df[0], np_al[0], output["keypoints"][0],
@@ -287,8 +287,11 @@ class JointPointLineDetectorDescriptor(BaseModel):
                     df_thresh=2, 
                     inlier_thresh=0.9,
                     a_diff_thresh=np.pi/20,
-                    a_std_thresh=np.pi/10,
+                    a_std_thresh=np.pi,
+                    a_inlier_thresh=0.5,
                     r_radius = 1,
+                    merge=False,
+                    merge_thresh=3
                 )
                 # img_lines = detect_afm_lines(
                 #     img, df, ll, **self.conf.line_detection.line_detection_params)
