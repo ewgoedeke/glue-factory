@@ -3,10 +3,18 @@ Utility functions for JPLDD extractor
 - ALIKED supporting methods
 - Linesegments supporting methods
 """
+import time
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.nn.functional import softmax, pixel_shuffle
+
+
+def sync_and_time():
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+    t = time.time()
+    return t
 
 
 def change_dict_key(d, old_key, new_key, default_value=None):
