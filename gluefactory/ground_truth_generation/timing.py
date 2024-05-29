@@ -103,7 +103,7 @@ def get_dataset_and_loader(num_workers):  # folder where dataset images are plac
         },
         'train_batch_size': 1,  # prefix must match split mode
         'num_workers': num_workers,
-        'split': 'test'  # if implemented by dataset class gives different splits
+        'split': 'test'  # test is not shuffled, train is -> to get consistent results on same images, use test
     }
     omega_conf = OmegaConf.create(config)
     dataset = get_dataset(omega_conf.name)(omega_conf)
@@ -133,12 +133,12 @@ def run_measurement(dataloader, model, num_s, name, device, do_jpldd_inner_timin
             break
 
     print(f"*** RESULTS FOR {name} ON {num_s} IMAGES ***")
-    print(f"\tMean: {np.mean(timings)}")
-    print(f"\tMedian: {np.median(timings)}")
-    print(f"\tMax: {np.max(timings)}")
-    print(f"\tMin: {np.min(timings)}")
-    print(f"\tStd: {np.std(timings)}")
-    if do_jpldd_inner_timings:
+    print(f"\tMean: {round(np.mean(timings), 6)}")
+    print(f"\tMedian: {round(np.median(timings), 6)}")
+    print(f"\tMax: {round(np.max(timings), 6)}")
+    print(f"\tMin: {round(np.min(timings), 6)}")
+    print(f"\tStd: {round(np.std(timings), 6)}")
+    if do_jpldd_inner_timings and name == "jpldd":
         print(f"INNER TIMINGS JPLDD")
         inner_timings = model.get_current_timings()
         for k, v in inner_timings.items():
