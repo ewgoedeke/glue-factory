@@ -94,14 +94,14 @@ model_configs = {
 }
 
 
-def get_dataset_and_loader(num_workers):  # folder where dataset images are placed
+def get_dataset_and_loader(num_workers, batch_size):  # folder where dataset images are placed
     config = {
         'name': 'minidepth',  # name of dataset class in gluefactory > datasets
         'grayscale': False,  # commented out things -> dataset must also have these keys but has not
         'preprocessing': {
-            'resize': [800, 800]
+            'resize': [240, 320]
         },
-        'train_batch_size': 1,  # prefix must match split mode
+        'train_batch_size': batch_size,  # prefix must match split mode
         'num_workers': num_workers,
         'split': 'test'  # test is not shuffled, train is -> to get consistent results on same images, use test
     }
@@ -118,21 +118,21 @@ def sync_and_time():
     return t
 
 
-def run_measurement(dataloader, model, num_s, name, device, do_jpldd_inner_timings=False):
+def run_measurement(dataloader, model, num_s, name, device, batch_size, do_jpldd_inner_timings=False):
     count = 0
     timings = []
-    for img in tqdm(dataloader, total=num_s):
+    for img in tqdm(dataloader, total=num_s//batch_size,):
         img = batch_to_device(img, device, non_blocking=True)
         with torch.no_grad():
             start = sync_and_time()
             pred = model(img)
             end = sync_and_time()
-            timings.append((end - start))
-        count += 1
-        if count == num_s:
+            timings.append((end - start)/batch_size)
+        count += batch_size
+        if count >= num_s:
             break
 
-    print(f"*** RESULTS FOR {name} ON {num_s} IMAGES ***")
+    print(f"*** RESULTS FOR {name} ON {num_s} IMAGES WITH BATCH SIZE {batch_size} ***")
     print(f"\tMean: {round(np.mean(timings), 6)}")
     print(f"\tMedian: {round(np.median(timings), 6)}")
     print(f"\tMax: {round(np.max(timings), 6)}")
@@ -153,6 +153,8 @@ if __name__ == "__main__":
                         help='activates measurement of single parts of the jpldd pipeline')
     parser.add_argument('--n_jobs_dataloader', type=int, default=1,
                         help='Number of jobs the dataloader uses to load images')
+    parser.add_argument('--batch_size', type=int, default=1,
+                        help='Batch size used for the model')
     args = parser.parse_args()
 
     print("NUMBER OF SAMPLES: ", args.num_s)
@@ -161,7 +163,7 @@ if __name__ == "__main__":
     if args.config == 'jpldd':
         print("JPLDD-Inner timing activated: ", args.jpldd_inner_timings)
 
-    dataloader = get_dataset_and_loader(args.n_jobs_dataloader)
+    dataloader = get_dataset_and_loader(args.n_jobs_dataloader,args.batch_size)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     config = model_configs[args.config]
@@ -172,5 +174,5 @@ if __name__ == "__main__":
 
     model.eval().to(device)
 
-    run_measurement(dataloader, model, args.num_s, model_name, device,
+    run_measurement(dataloader, model, args.num_s, args.config, device,args.batch_size,
                     do_jpldd_inner_timings=args.jpldd_inner_timings)
