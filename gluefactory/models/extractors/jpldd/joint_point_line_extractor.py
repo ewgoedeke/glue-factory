@@ -17,7 +17,8 @@ from gluefactory.models.extractors.jpldd.keypoint_detection import SimpleDetecto
 from gluefactory.models.extractors.jpldd.utils import InputPadder, change_dict_key
 from gluefactory.models.extractors.jpldd.metrics import compute_pr, compute_loc_error, compute_repeatability
 from gluefactory.models.extractors.jpldd.line_detection_lsd import detect_afm_lines
-from gluefactory.models.extractors.jpldd.line_detection_jpldd import detect_jpldd_lines
+#from gluefactory.models.extractors.jpldd.line_detection_jpldd import detect_jpldd_lines
+from gluefactory.models.extractors.jpldd.new_line_detection_jpldd import detect_jpldd_lines
 
 to_ctr = OmegaConf.to_container  # convert DictConfig to dict
 aliked_checkpoint_url = "https://github.com/Shiaoming/ALIKED/raw/main/models/{}.pth"  # used for training based on ALIKED weights
@@ -277,24 +278,13 @@ class JointPointLineDetectorDescriptor(BaseModel):
             if self.conf.timeit:
                 start_lines = time.time()
             lines = []
-            np_img = (data['image'].cpu().numpy()[:, 0] * 255).astype(np.uint8)
             np_df = output["line_distancefield"]#.cpu().numpy()
             np_al = output["line_anglefield"]#.cpu().numpy()
-            for img, df, ll in zip(np_img, np_df, np_al):
+            np_kp = output["keypoints"]
+            for df, af,kp in zip(np_df, np_al,np_kp):
                 img_lines = detect_jpldd_lines(
-                    np_df[0], np_al[0], output["keypoints"][0],
-                    n_samples=64, 
-                    df_thresh=2, 
-                    inlier_thresh=0.9,
-                    a_diff_thresh=np.pi/20,
-                    a_std_thresh=np.pi,
-                    a_inlier_thresh=0.5,
-                    r_radius = 1,
-                    merge=False,
-                    merge_thresh=3
+                    df,af,kp,
                 )
-                # img_lines = detect_afm_lines(
-                #     img, df, ll, **self.conf.line_detection.line_detection_params)
                 lines.append(img_lines)
             output['line_segments'] = lines
             # Use aliked points sampled from inbetween Line endpoints?
