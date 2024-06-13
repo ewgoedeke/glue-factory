@@ -7,7 +7,7 @@ model:
     max_num_keypoints: 2048
     detection_threshold: 0.0
     nms_radius: 3
-    checkpoint: rk_jpldd_04/checkpoint_best.tar
+    #checkpoint: rk_jpldd_11/checkpoint_best.tar
   matcher:
     name: matchers.line_matcher
 benchmarks:
@@ -26,3 +26,5 @@ benchmarks:
     model:
       extractor:
         max_num_keypoints: 1024 # overwrite config above
+    use_points: False
+    use_lines: True

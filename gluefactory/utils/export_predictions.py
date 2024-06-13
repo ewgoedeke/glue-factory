@@ -51,12 +51,11 @@ def export_predictions(
                 )
                 pred[k] = pred[k] * scales[None]
             if k.startswith("lines"):
-                # Skip normalization
-                # idx = k.replace("lines", "")
-                # scales = 1.0 / (
-                #     data["scales"] if len(idx) == 0 else data[f"view{idx}"]["scales"]
-                # )
-                pred[k] = torch.tensor(pred[k])
+                idx = k.replace("lines", "")
+                scales = 1.0 / (
+                    data["scales"] if len(idx) == 0 else data[f"view{idx}"]["scales"]
+                )
+                pred[k] = pred[k]* scales[None]
             if k.startswith("orig_lines"):
                 idx = k.replace("orig_lines", "")
                 scales = 1.0 / (

@@ -9,7 +9,8 @@ from ..robust_estimators import load_estimator
 from ..utils.tensor import index_batch
 from ..utils.tools import AUCMetric
 from gluefactory.datasets.homographies_deeplsd import warp_lines
-from gluefactory.models.extractors.jpldd.metrics_lines import match_segments_1_to_1, compute_loc_error, compute_repeatability, H_estimation
+from gluefactory.models.extractors.jpldd.metrics_lines import match_segments_1_to_1, compute_loc_error, compute_repeatability 
+#H_estimation
 
 num_lines_thresholds = [10, 25, 50, 100, 300]
 thresholds = [1, 2, 3, 4, 5]
@@ -102,8 +103,9 @@ def eval_matches_homography_lines(data: dict, pred: dict) -> dict:
         else:
             matched_seg0 = segs0[match_idx0]
             matched_seg1 = warp_lines(segs1, H)[match_idx1]
-            score = H_estimation(matched_seg0, matched_seg1, H,
-                                 img_shape)[0]
+            score = 0 #TODO: Fix this
+            #H_estimation(matched_seg0, matched_seg1, H,
+            #                     img_shape)[0]
             H_estim.append(score)
     results = {}
     results["repeatability"] = np.mean(np.stack(struct_rep, axis=0), axis=0)

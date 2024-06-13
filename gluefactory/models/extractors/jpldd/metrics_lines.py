@@ -8,7 +8,7 @@ from gluefactory.geometry.line_utils import (
 from gluefactory.datasets.homographies import warp_points
 from gluefactory.datasets.homographies_deeplsd import warp_lines
 #from ..models.lbd import PyTLBD
-from homography_est import LineSegment, ransac_line_homography
+#from homography_est import LineSegment, ransac_line_homography
 
 
 num_lines_thresholds = [10, 25, 50, 100, 300]
@@ -191,52 +191,52 @@ def get_inliers_and_reproj_error(line_seg1, line_seg2, H, tol_px=5):
     return inliers, reproj_error
 
 
-def estimate_homography(line_seg1, line_seg2, tol_px=5):
-    """ Estimate the homography relating two sets of lines.
-    Args:
-        line_seg1, line_seg2: the matching set of line segments.
-        tol_px: inlier threshold in RANSAC.
-    Returns:
-        The estimated homography, mask of inliers, and reprojection error.
-    """
-    # Initialize the line segments C++ bindings
-    lines1 = [LineSegment(l[0, [1, 0]], l[1, [1, 0]]) for l in line_seg1]
-    lines2 = [LineSegment(l[0, [1, 0]], l[1, [1, 0]]) for l in line_seg2]
+# def estimate_homography(line_seg1, line_seg2, tol_px=5):
+#     """ Estimate the homography relating two sets of lines.
+#     Args:
+#         line_seg1, line_seg2: the matching set of line segments.
+#         tol_px: inlier threshold in RANSAC.
+#     Returns:
+#         The estimated homography, mask of inliers, and reprojection error.
+#     """
+#     # Initialize the line segments C++ bindings
+#     lines1 = [LineSegment(l[0, [1, 0]], l[1, [1, 0]]) for l in line_seg1]
+#     lines2 = [LineSegment(l[0, [1, 0]], l[1, [1, 0]]) for l in line_seg2]
 
-    # Estimate the homography with RANSAC
-    inliers = []
-    H = ransac_line_homography(lines1, lines2, tol_px, False, inliers)
-    inliers, reproj_error = get_inliers_and_reproj_error(
-        line_seg1, line_seg2, H, tol_px)
-    return H, inliers, reproj_error
+#     # Estimate the homography with RANSAC
+#     inliers = []
+#     H = ransac_line_homography(lines1, lines2, tol_px, False, inliers)
+#     inliers, reproj_error = get_inliers_and_reproj_error(
+#         line_seg1, line_seg2, H, tol_px)
+#     return H, inliers, reproj_error
 
 
-def H_estimation(line_seg1, line_seg2, H_gt, img_size,
-                 reproj_thresh=3, tol_px=5):
-    """ Given matching line segments from pairs of images, estimate
-        a homography and compare it to the ground truth homography.
-    Args:
-        line_seg1, line_seg2: the matching set of line segments.
-        H_gt: the ground truth homography relating the two images.
-        img_size: the original image size.
-        reproj_thresh: error threshold to determine if a homography is valid.
-        tol_px: inlier threshold in RANSAC.
-    Returns:
-        The percentage of correctly estimated homographies.
-    """
-    # Estimate the homography
-    H, inliers, reproj_error = estimate_homography(line_seg1, line_seg2,
-                                                   tol_px)
+# def H_estimation(line_seg1, line_seg2, H_gt, img_size,
+#                  reproj_thresh=3, tol_px=5):
+#     """ Given matching line segments from pairs of images, estimate
+#         a homography and compare it to the ground truth homography.
+#     Args:
+#         line_seg1, line_seg2: the matching set of line segments.
+#         H_gt: the ground truth homography relating the two images.
+#         img_size: the original image size.
+#         reproj_thresh: error threshold to determine if a homography is valid.
+#         tol_px: inlier threshold in RANSAC.
+#     Returns:
+#         The percentage of correctly estimated homographies.
+#     """
+#     # Estimate the homography
+#     H, inliers, reproj_error = estimate_homography(line_seg1, line_seg2,
+#                                                    tol_px)
 
-    # Compute the homography estimation error
-    corners = np.array([[0, 0],
-                        [0, img_size[1] - 1],
-                        [img_size[0] - 1, 0],
-                        [img_size[0] - 1, img_size[1] - 1]], dtype=float)
-    warped_corners = warp_points(corners, H_gt)
-    pred_corners = warp_points(warped_corners, H)
-    error = np.linalg.norm(corners - pred_corners, axis=1).mean()
-    return error < reproj_thresh, np.sum(inliers), reproj_error
+#     # Compute the homography estimation error
+#     corners = np.array([[0, 0],
+#                         [0, img_size[1] - 1],
+#                         [img_size[0] - 1, 0],
+#                         [img_size[0] - 1, img_size[1] - 1]], dtype=float)
+#     warped_corners = warp_points(corners, H_gt)
+#     pred_corners = warp_points(warped_corners, H)
+#     error = np.linalg.norm(corners - pred_corners, axis=1).mean()
+#     return error < reproj_thresh, np.sum(inliers), reproj_error
 
 
 ### Vanishing point estimation

@@ -22,7 +22,7 @@ from gluefactory.datasets.homographies_deeplsd import sample_homography
 from kornia.geometry.transform import warp_perspective
 from gluefactory.models.extractors.jpldd.metrics_points import compute_pr, compute_loc_error, compute_repeatability
 from gluefactory.models.extractors.jpldd.line_detection_lsd import detect_afm_lines
-#from gluefactory.models.extractors.jpldd.line_detection_jpldd import detect_jpldd_lines
+from gluefactory.settings import TRAINING_PATH
 from gluefactory.models.extractors.jpldd.new_line_detection_jpldd import detect_jpldd_lines
 
 default_H_params = {
@@ -77,7 +77,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
                 'grad_thresh': 3,
             },
         },
-        "checkpoint": "rk_jpldd_11/checkpoint_best.tar",  # if given and non-null, load model checkpoint
+        "checkpoint": TRAINING_PATH / "rk_jpldd_11_refine_10/checkpoint_best.tar",  # if given and non-null, load model checkpoint
         "nms_radius": 3,
         "line_neighborhood": 5,  # used to normalize / denormalize line distance field
         "timeit": True,  # override timeit: False from BaseModel
@@ -310,7 +310,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
                     df,af,kp,(h,w)
                 )
                 lines.append(img_lines)
-            output['line_segments'] = lines
+            output['lines'] = lines
             # Use aliked points sampled from inbetween Line endpoints?
             line_descriptors = None
             output["line_descriptors"] = line_descriptors

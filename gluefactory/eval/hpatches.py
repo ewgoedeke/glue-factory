@@ -32,7 +32,7 @@ class HPatchesPipeline(EvalPipeline):
         "data": {
             "batch_size": 1,
             "name": "hpatches",
-            "num_workers": 16,
+            "num_workers": 2,
             "preprocessing": {
                 "resize": 480,  # we also resize during eval to have comparable metrics
                 "side": "short",
@@ -47,19 +47,12 @@ class HPatchesPipeline(EvalPipeline):
             "estimator": "poselib",
             "ransac_th": 1.0,  # -1 runs a bunch of thresholds and selects the best
         },
+        "use_points": True,
+        "use_lines": False,
         "repeatability_th": [1,3,5],
         "num_lines_th": [10,50,300]
     }
-    export_keys = [
-        "keypoints0",
-        "keypoints1",
-        "keypoint_scores0",
-        "keypoint_scores1",
-        "matches0",
-        "matches1",
-        "matching_scores0",
-        "matching_scores1",
-    ]
+    export_keys = []
 
     optional_export_keys = [
         "lines0",
@@ -74,7 +67,26 @@ class HPatchesPipeline(EvalPipeline):
     ]
 
     def _init(self, conf):
-        pass
+        if conf.use_points:
+            self.export_keys += [
+                "keypoints0",
+                "keypoints1",
+                "keypoint_scores0",
+                "keypoint_scores1",
+                "matches0",
+                "matches1",
+                "matching_scores0",
+                "matching_scores1",
+            ]
+        if conf.use_lines:
+            self.export_keys += [
+                "lines0",
+                "lines1",
+                "line_matches0",
+                "line_matches1",
+                "line_matching_scores0",
+                "line_matching_scores1"
+            ]
 
     @classmethod
     def get_dataloader(self, data_conf=None):
@@ -134,7 +146,7 @@ class HPatchesPipeline(EvalPipeline):
 
             if "lines0" in pred:
                 results_i["repeatability"] = compute_repeatability(pred["lines0"], pred["lines1"],  pred["line_matches0"],  pred["line_matches1"],
-                                                    pred["line_distances"], self.conf.repeatability_th, rep_type='num')
+                                                    pred["line_matching_scores0"], self.conf.repeatability_th, rep_type='num')
                 results_i["loc_error"] = compute_loc_error(pred["line_distances"], self.conf.num_lines_th)
 
             for k, v in results_i.items():
