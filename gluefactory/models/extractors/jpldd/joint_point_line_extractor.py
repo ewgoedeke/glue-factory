@@ -1,7 +1,6 @@
-import time
+import torch
 from pathlib import Path
 
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import logging
@@ -288,10 +287,10 @@ class JointPointLineDetectorDescriptor(BaseModel):
             if self.conf.timeit:
                 start_lines = sync_and_time()
             lines = []
-            np_df = output["line_distancefield"]#.cpu().numpy()
-            np_al = output["line_anglefield"]#.cpu().numpy()
+            np_df = output["line_distancefield"]  # .cpu().numpy()
+            np_al = output["line_anglefield"]  # .cpu().numpy()
             np_kp = output["keypoints"]
-            for df, af,kp in zip(np_df, np_al,np_kp):
+            for df, af, kp in zip(np_df, np_al, np_kp):
                 img_lines = detect_jpldd_lines(
                     df,af,kp,(h,w),merge=self.conf.line_detection.merge
                 )
