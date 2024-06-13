@@ -24,6 +24,7 @@ from .utils import (
     eval_matches_homography,
     eval_poses,
 )
+from gluefactory.models.extractors.jpldd.metrics_lines import compute_loc_error,compute_repeatability
 
 
 class HPatchesPipeline(EvalPipeline):
@@ -46,6 +47,8 @@ class HPatchesPipeline(EvalPipeline):
             "estimator": "poselib",
             "ransac_th": 1.0,  # -1 runs a bunch of thresholds and selects the best
         },
+        "repeatability_th": [1,3,5],
+        "num_lines_th": [10,50,300]
     }
     export_keys = [
         "keypoints0",
@@ -67,6 +70,7 @@ class HPatchesPipeline(EvalPipeline):
         "line_matches1",
         "line_matching_scores0",
         "line_matching_scores1",
+        "line_distances"
     ]
 
     def _init(self, conf):
@@ -110,7 +114,6 @@ class HPatchesPipeline(EvalPipeline):
             # Remove batch dimension
             data = map_tensor(data, lambda t: torch.squeeze(t, dim=0))
             # add custom evaluations here
-            
 
             if "keypoints0" in pred:
                 results_i = eval_matches_homography(data, pred)
@@ -128,6 +131,11 @@ class HPatchesPipeline(EvalPipeline):
             # we also store the names for later reference
             results_i["names"] = data["name"][0]
             results_i["scenes"] = data["scene"][0]
+
+            if "lines0" in pred:
+                results_i["repeatability"] = compute_repeatability(pred["lines0"], pred["lines1"],  pred["line_matches0"],  pred["line_matches1"],
+                                                    pred["line_distances"], self.conf.repeatability_th, rep_type='num')
+                results_i["loc_error"] = compute_loc_error(pred["line_distances"], self.conf.num_lines_th)
 
             for k, v in results_i.items():
                 results[k].append(v)
@@ -149,6 +157,15 @@ class HPatchesPipeline(EvalPipeline):
             dlt_aucs = AUCMetric(auc_ths, results["H_error_dlt"]).compute()
             for i, ath in enumerate(auc_ths):
                 summaries[f"H_error_dlt@{ath}px"] = dlt_aucs[i]
+        if "repeatability" in results.keys():
+            for i,th in self.conf.repeatability_th:
+                cur_nums = map(lambda x:x[i],results["repeatability"])
+                summaries[f"repeatability@{th}px"] = round(np.median(cur_nums),3)
+        if "loc_error" in results.keys():
+            for i,th in enumerate(self.conf.num_lines_th):
+                cur_nums = map(lambda x:x[i],results["loc_error"])
+                summaries[f"loc_error@{th}lines"] = round(np.median(cur_nums),3)
+
 
         results = {**results, **pose_results[best_th]}
         summaries = {
