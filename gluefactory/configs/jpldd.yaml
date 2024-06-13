@@ -5,7 +5,6 @@ data:
     num_workers: 0  # defines processes used in Dataloader
     train_batch_size: 1  # 2 per GPU
     val_batch_size: 1
-    device: null
     prefetch_factor: null
     preprocessing:
         resize: [ 800, 800 ]
@@ -28,7 +27,9 @@ model:
     training:
         do: True
         aliked_pretrained: True
-        train_descriptors: True  # if train is True, initialize ALIKED Light model form OTF Descriptor GT
+        train_descriptors:
+            do: True # if train is True, initialize ALIKED Light model form OTF Descriptor GT
+            gt_aliked_model: "aliked-n32"
         pretrain_kp_decoder: False
         lambda_weighted_bce: 200
         loss_weights:
