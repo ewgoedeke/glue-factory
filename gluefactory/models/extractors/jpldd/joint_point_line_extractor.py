@@ -307,7 +307,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
             np_kp = output["keypoints"]
             for df, af,kp in zip(np_df, np_al,np_kp):
                 img_lines = detect_jpldd_lines(
-                    df,af,kp,
+                    df,af,kp,(h,w)
                 )
                 lines.append(img_lines)
             output['line_segments'] = lines
