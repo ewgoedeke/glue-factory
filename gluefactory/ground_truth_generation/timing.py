@@ -24,7 +24,7 @@ model_configs = {
         "detection_threshold": -1,
         "force_num_keypoints": False,
         "pretrained": True,
-        "nms_radius": 2
+        "nms_radius": 4
     },
 
     "sp": {
@@ -85,7 +85,7 @@ model_configs = {
         "line_detection": {
             "do": True,
         },
-        "nms_radius": 2,
+        "nms_radius": 4,
         "line_neighborhood": 5,  # used to normalize / denormalize line distance field
         "timeit": False,  # override timeit: False from BaseModel
         # "line_df_decoder_channels": 64, # uncomment it for models having the old number of channels
@@ -99,7 +99,7 @@ def get_dataset_and_loader(num_workers, batch_size):  # folder where dataset ima
         'name': 'minidepth',  # name of dataset class in gluefactory > datasets
         'grayscale': False,  # commented out things -> dataset must also have these keys but has not
         'preprocessing': {
-            'resize': [240, 320]
+            'resize': [800, 800]
         },
         'train_batch_size': batch_size,  # prefix must match split mode
         'num_workers': num_workers,
