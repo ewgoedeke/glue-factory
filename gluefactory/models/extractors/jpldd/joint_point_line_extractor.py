@@ -68,7 +68,6 @@ class JointPointLineDetectorDescriptor(BaseModel):
                 "descriptor_weight": 1
             },
         },
-        },
         "line_detection": {
             "do": True,
             'line_detection_params': {
@@ -78,7 +77,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
                 'grad_thresh': 3,
             },
         },
-        "checkpoint": "rk_jpldd_04/checkpoint_best.tar",  # if given and non-null, load model checkpoint
+        "checkpoint": "rk_jpldd_11/checkpoint_best.tar",  # if given and non-null, load model checkpoint
         "nms_radius": 3,
         "line_neighborhood": 5,  # used to normalize / denormalize line distance field
         "timeit": True,  # override timeit: False from BaseModel
