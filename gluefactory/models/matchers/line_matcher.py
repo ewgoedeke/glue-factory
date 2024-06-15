@@ -10,34 +10,41 @@ import torch
 
 class LineMatcher(BaseModel):
     default_conf = {
-        "img_size": (800,800),
-        "line_dist": "area",
+        "line_dist": "orth",
         "angular_th": (30 * np.pi / 180),
         "overlap_th": 0.5,
-        "dist_thresh": 0.5
+        "dist_thresh": 10,
+        "min_length": 20
     }
 
     def _init(self, conf):
         # TODO (iago): Is this just boilerplate code?
         pass
 
-    required_data_keys = ["H_0to1","lines0","lines1"]
+    required_data_keys = ["H_0to1","lines0","lines1","view0"]
 
     def _forward(self, data):
         device = data["lines0"][0].device
+        img_size = data["view0"]["image"].shape[2],data["view0"]["image"].shape[3]
         result = {}
+        lines0 = data["lines0"][0].cpu().numpy()
+        lines1 = data["lines1"][0].cpu().numpy()
+        lines0 = lines0[
+            np.linalg.norm(lines0[:, 1] - lines0[:, 0], axis=1) > self.conf.min_length]
+        lines1 = lines1[
+            np.linalg.norm(lines1[:, 1] - lines1[:, 0], axis=1) > self.conf.min_length]
         # The data elements come in lists and therefore they are unpacked
-        segs1, segs2, matched_idx1, matched_idx2, distances = match_segments_1_to_1(data["lines0"][0].cpu().numpy(),
-                                                                                    data["lines1"][0].cpu().numpy(),
+        segs1, segs2, matched_idx1, matched_idx2, distances = match_segments_1_to_1(lines0,
+                                                                                    lines1,
                                                                                     data["H_0to1"][0].cpu().numpy(),
-                              self.conf.img_size,self.conf.line_dist,self.conf.angular_th,
+                              img_size,self.conf.line_dist,self.conf.angular_th,
                               self.conf.overlap_th,self.conf.dist_thresh)
-        result["lines0"] = torch.Tensor(segs1).to(device)
-        result["lines1"] = torch.Tensor(segs2).to(device)
-        result["line_matches0"] = torch.Tensor(matched_idx1).to(device)
-        result["line_matches1"] = torch.Tensor(matched_idx2).to(device)
-        result["line_matching_scores0"] = torch.Tensor(distances).to(device)
-        result["line_matching_scores1"] = torch.Tensor(distances).to(device)
+        result["lines0"] = torch.Tensor(segs1).unsqueeze(0).to(device)
+        result["lines1"] = torch.Tensor(segs2).unsqueeze(0).to(device)
+        result["line_matches0"] = torch.Tensor(matched_idx1).unsqueeze(0).to(device)
+        result["line_matches1"] = torch.Tensor(matched_idx2).unsqueeze(0).to(device)
+        result["line_matching_scores0"] = torch.Tensor(distances).unsqueeze(0).to(device)
+        result["line_matching_scores1"] = torch.Tensor(distances).unsqueeze(0).to(device)
         return result
 
     def loss(self, pred, data):

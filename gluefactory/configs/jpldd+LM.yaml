@@ -4,9 +4,9 @@ model:
     name: extractors.jpldd.joint_point_line_extractor
     training:
       do: False
-    max_num_keypoints: 2048
-    detection_threshold: 0.0
-    nms_radius: 3
+    max_num_keypoints: 512
+    line_detection:
+      merge: True
     #checkpoint: rk_jpldd_11/checkpoint_best.tar
   matcher:
     name: matchers.line_matcher
@@ -25,6 +25,6 @@ benchmarks:
       ransac_th: 0.5
     model:
       extractor:
-        max_num_keypoints: 1024 # overwrite config above
+        max_num_keypoints: 512 # overwrite config above
     use_points: False
     use_lines: True

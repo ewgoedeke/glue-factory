@@ -183,12 +183,12 @@ def eval_homography_robust(data, pred, conf):
     estimator = load_estimator("homography", conf["estimator"])(conf)
 
     data_ = {}
-    if "keypoints0" in pred:
-        kp0, kp1 = pred["keypoints0"], pred["keypoints1"]
-        m0, scores0 = pred["matches0"], pred["matching_scores0"]
-        pts0, pts1, _ = get_matches_scores(kp0, kp1, m0, scores0)
-        data_["m_kpts0"] = pts0
-        data_["m_kpts1"] = pts1
+    # if "keypoints0" in pred:
+    #     kp0, kp1 = pred["keypoints0"], pred["keypoints1"]
+    #     m0, scores0 = pred["matches0"], pred["matching_scores0"]
+    #     pts0, pts1, _ = get_matches_scores(kp0, kp1, m0, scores0)
+    #     data_["m_kpts0"] = pts0
+    #     data_["m_kpts1"] = pts1
     if "lines0" in pred:
         if "orig_lines0" in pred:
             lines0 = pred["orig_lines0"]

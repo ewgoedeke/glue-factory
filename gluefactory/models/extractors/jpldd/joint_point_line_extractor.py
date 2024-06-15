@@ -51,7 +51,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         "line_af_decoder_channels": 32,
         "max_num_keypoints": 1000,  # setting for training, for eval: -1
         "detection_threshold": -1,  # setting for training, for eval: 0.2
-        "force_num_keypoints": False,
+        "force_num_keypoints": True,
         "training": {  # training settings
             "do": False,  # switch to turn off other settings regarding training = "training mode"
             "aliked_pretrained": True,
@@ -70,12 +70,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         },
         "line_detection": {
             "do": True,
-            'line_detection_params': {
-                'merge': False,
-                'grad_nfa': True,
-                'filtering': 'normal',
-                'grad_thresh': 3,
-            },
+            "merge" : False
         },
         "checkpoint": TRAINING_PATH / "rk_jpldd_11_refine_10/checkpoint_best.tar",  # if given and non-null, load model checkpoint
         "nms_radius": 3,
@@ -307,7 +302,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
             np_kp = output["keypoints"]
             for df, af,kp in zip(np_df, np_al,np_kp):
                 img_lines = detect_jpldd_lines(
-                    df,af,kp,(h,w)
+                    df,af,kp,(h,w),merge=self.conf.line_detection.merge
                 )
                 lines.append(img_lines)
             output['lines'] = lines
