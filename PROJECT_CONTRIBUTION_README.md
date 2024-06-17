@@ -24,18 +24,21 @@ contains the scripts we used to generate the groundtruth for points and lines. i
 
 Contains jupyter notebooks that we used to test our method and visualize results.
 
+### notebooks/JPLDD_demo_notebook.ipynb
+
+Easy to follow walk-through for functionality of JPLDD. Using a single image we show how to action: 1) Heatmap generation, 2) Keypoint detection, 3) Line Detection, 4) Descriptor extraction
+
 ### cluster/
 
 Contains scripts and the settings file we used to run training and evaluations on the cluster.
 
 ### gluefactory/datasets
 
-We implemented our own dataset in `minidepth.py`. 
+We implemented our own dataset in `minidepth.py`.
 
 ### gluefactory/eval
 
 We implemented a custom evaluation pipeline for our line detection. it can be found in `gluefactory/eval/hpatches_lines.py`
-
 
 ## Test our method
 
