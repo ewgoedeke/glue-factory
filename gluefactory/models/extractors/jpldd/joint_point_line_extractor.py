@@ -8,6 +8,7 @@ import numpy as np
 
 from omegaconf import OmegaConf
 
+from gluefactory import load_experiment
 from gluefactory.models import get_model
 from gluefactory.models.base_model import BaseModel
 from gluefactory.models.extractors.jpldd.backbone_encoder import AlikedEncoder, aliked_cfgs
@@ -15,10 +16,27 @@ from gluefactory.models.extractors.jpldd.descriptor_head import SDDH
 from gluefactory.models.extractors.jpldd.keypoint_decoder import SMH
 from gluefactory.models.extractors.jpldd.keypoint_detection import SimpleDetector, DKD, DKDLight
 from gluefactory.models.extractors.jpldd.utils import InputPadder, change_dict_key
-from gluefactory.models.extractors.jpldd.metrics import compute_pr, compute_loc_error, compute_repeatability
+from gluefactory.models.extractors.jpldd.metrics_points import compute_pr, compute_loc_error, compute_repeatability
+import gluefactory.models.extractors.jpldd.metrics_lines as LineMetrics
+from gluefactory.datasets.homographies_deeplsd import sample_homography
+from kornia.geometry.transform import warp_perspective
+from gluefactory.models.extractors.jpldd.metrics_points import compute_pr, compute_loc_error, compute_repeatability
 from gluefactory.models.extractors.jpldd.line_detection_lsd import detect_afm_lines
-#from gluefactory.models.extractors.jpldd.line_detection_jpldd import detect_jpldd_lines
+from gluefactory.settings import TRAINING_PATH
 from gluefactory.models.extractors.jpldd.new_line_detection_jpldd import detect_jpldd_lines
+
+default_H_params = {
+    'translation': True,
+    'rotation': True,
+    'scaling': True,
+    'perspective': True,
+    'scaling_amplitude': 0.2,
+    'perspective_amplitude_x': 0.2,
+    'perspective_amplitude_y': 0.2,
+    'patch_ratio': 0.85,
+    'max_angle': 1.57,
+    'allow_artifacts': True
+}
 
 to_ctr = OmegaConf.to_container  # convert DictConfig to dict
 aliked_checkpoint_url = "https://github.com/Shiaoming/ALIKED/raw/main/models/{}.pth"  # used for training based on ALIKED weights
@@ -52,14 +70,9 @@ class JointPointLineDetectorDescriptor(BaseModel):
         },
         "line_detection": {
             "do": True,
-            'line_detection_params': {
-                'merge': False,
-                'grad_nfa': True,
-                'filtering': 'normal',
-                'grad_thresh': 3,
-            },
+            "merge" : False
         },
-        "checkpoint": "rk_jpldd_04/checkpoint_best.tar",  # if given and non-null, load model checkpoint
+        "checkpoint": TRAINING_PATH / "rk_jpldd_11_refine_10/checkpoint_best.tar",  # if given and non-null, load model checkpoint
         "nms_radius": 3,
         "line_neighborhood": 5,  # used to normalize / denormalize line distance field
         "timeit": True,  # override timeit: False from BaseModel
@@ -154,6 +167,12 @@ class JointPointLineDetectorDescriptor(BaseModel):
             logger.warning(f"Load model parameters from checkpoint {conf.checkpoint}")
             chkpt = torch.load(conf.checkpoint, map_location=torch.device('cpu'))
             self.load_state_dict(chkpt["model"], strict=True)
+
+        # load model checkpoint if given -> only load weights
+        if conf.checkpoint is not None:
+            logger.warning(f"Load model parameters from checkpoint {conf.checkpoint}")
+            st_dict = torch.load(conf.checkpoint, map_location=torch.device('cpu'))
+            self.load_state_dict(st_dict, strict=False)
 
     # Utility methods for line df and af with deepLSD
     def normalize_df(self, df):
@@ -283,10 +302,10 @@ class JointPointLineDetectorDescriptor(BaseModel):
             np_kp = output["keypoints"]
             for df, af,kp in zip(np_df, np_al,np_kp):
                 img_lines = detect_jpldd_lines(
-                    df,af,kp,
+                    df,af,kp,(h,w),merge=self.conf.line_detection.merge
                 )
                 lines.append(img_lines)
-            output['line_segments'] = lines
+            output['lines'] = lines
             # Use aliked points sampled from inbetween Line endpoints?
             line_descriptors = None
             output["line_descriptors"] = line_descriptors
@@ -443,16 +462,39 @@ class JointPointLineDetectorDescriptor(BaseModel):
         device = pred['keypoint_and_junction_score_map'].device
         gt = data["superpoint_heatmap"].cpu().numpy()
         predictions = pred["keypoint_and_junction_score_map"].cpu().numpy()
-        imgs = data["image"].cpu().numpy()
         # Compute the precision and recall
-        precision, recall, _ = compute_pr(gt, predictions)
-        loc_error = compute_loc_error(gt, predictions)
-        rep = compute_repeatability(gt, predictions, imgs, self, device)
+        warped_outputs,Hs = self._get_warped_outputs(data)
+        warped_predictions = warped_outputs["keypoint_and_junction_score_map"].cpu().numpy()
 
+        precision, recall, _ = compute_pr(gt, predictions)
+        loc_error_points = compute_loc_error(gt, predictions)
+        rep_points = compute_repeatability(predictions, warped_predictions,Hs)
         out = {
             'precision': torch.tensor(precision.copy(), dtype=torch.float, device=device),
             'recall': torch.tensor(recall.copy(), dtype=torch.float, device=device),
-            'repeatability': torch.tensor([rep], dtype=torch.float, device=device),
-            'loc_error': torch.tensor([loc_error], dtype=torch.float, device=device)
+            'repeatability_points': torch.tensor([rep_points], dtype=torch.float, device=device),
+            'loc_error_points': torch.tensor([loc_error_points], dtype=torch.float, device=device),
         }
+        if "lines" in warped_outputs:
+            lines = pred["lines"]
+            warped_lines = warped_outputs["lines"]
+            rep_lines, loc_error_lines = LineMetrics.get_rep_and_loc_error(lines,warped_lines,Hs.cpu().numpy(),predictions[0].shape)
+            out['repeatability_lines'] = torch.tensor([rep_lines], dtype=torch.float, device=device)
+            out['loc_error_lines'] =  torch.tensor([loc_error_lines], dtype=torch.float, device=device)
+
         return out
+    
+    def _get_warped_outputs(self,data):
+        imgs = data["image"]
+        device = data["image"].device
+        batch_size = imgs.shape[0]
+        data_shape = imgs.shape[2:]
+        warped_imgs = torch.empty(imgs.shape,dtype=torch.float, device=device)
+        Hs = torch.empty((batch_size,3,3),dtype=torch.float, device=device)
+        for i in range(batch_size):
+            H = torch.tensor(sample_homography(data_shape,**default_H_params),dtype=torch.float, device=device)
+            Hs[i] = H
+            warped_imgs[i] = warp_perspective(imgs[i].unsqueeze(0),H.unsqueeze(0),data_shape, mode='bilinear')
+        with torch.no_grad():
+            warped_outputs = self({"image": warped_imgs})
+        return warped_outputs,Hs

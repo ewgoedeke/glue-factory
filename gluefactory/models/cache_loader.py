@@ -128,7 +128,8 @@ class CacheLoader(BaseModel):
                             if len(view_idx) == 0
                             else data[f"view{view_idx}"]["scales"]
                         )
-                        pred[k] = pred[k] * scales[i]
+                        if pred[k].numel() > 0:
+                            pred[k] = pred[k] * scales[i]
             # use this function to fix number of keypoints etc.
             if self.padding_fn is not None:
                 pred = self.padding_fn(pred, self.conf.padding_length)
