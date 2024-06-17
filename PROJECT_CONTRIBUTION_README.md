@@ -24,10 +24,6 @@ contains the scripts we used to generate the groundtruth for points and lines. i
 
 Contains jupyter notebooks that we used to test our method and visualize results.
 
-### notebooks/JPLDD_demo_notebook.ipynb
-
-Easy to follow walk-through for functionality of JPLDD. Using a single image we show how to action: 1) Heatmap generation, 2) Keypoint detection, 3) Line Detection, 4) Descriptor extraction
-
 ### cluster/
 
 Contains scripts and the settings file we used to run training and evaluations on the cluster.
@@ -42,7 +38,11 @@ We implemented a custom evaluation pipeline for our line detection. it can be fo
 
 ## Test our method
 
-If you want to test our implementation you can use the following notebook:
-``
+If you want to test our implementation you can use the notebook `notebooks/JPLDD_demo_notebook.ipynb`. There you can find an easy to follow walk-through for the functionality of JPLDD on a single image. It includes a demonstration of:
+
+- Heatmap generation
+- Keypoint detection
+- Line Detection
+- Descriptor extraction
 
 Make sure to install the dependencies according to the original README.md in this repo.
