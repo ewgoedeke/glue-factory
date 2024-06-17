@@ -15,15 +15,8 @@ from ..settings import EVAL_PATH
 from ..utils.export_predictions import export_predictions
 from ..utils.tensor import map_tensor
 from ..utils.tools import AUCMetric
-from ..visualization.viz2d import plot_cumulative
 from .eval_pipeline import EvalPipeline
 from .io import get_eval_parser, load_model, parse_eval_args
-from .utils import (
-    eval_homography_dlt,
-    eval_homography_robust,
-    eval_matches_homography,
-    eval_poses,
-)
 from gluefactory.models.extractors.jpldd.metrics_lines import compute_loc_error,compute_repeatability
 
 
@@ -113,13 +106,6 @@ class HPatchesPipeline(EvalPipeline):
         results = defaultdict(list)
 
         conf = self.conf.eval
-
-        test_thresholds = (
-            ([conf.ransac_th] if conf.ransac_th > 0 else [0.5, 1.0, 1.5, 2.0, 2.5, 3.0])
-            if not isinstance(conf.ransac_th, Iterable)
-            else conf.ransac_th
-        )
-        pose_results = defaultdict(lambda: defaultdict(list))
         cache_loader = CacheLoader({"path": str(pred_file), "collate": None}).eval()
         for i, data in enumerate(tqdm(loader)):
             pred = cache_loader(data)
@@ -127,18 +113,8 @@ class HPatchesPipeline(EvalPipeline):
             data = map_tensor(data, lambda t: torch.squeeze(t, dim=0))
             # add custom evaluations here
 
-            # if "keypoints0" in pred:
-            #     results_i = eval_matches_homography(data, pred)
-            #     results_i = {**results_i, **eval_homography_dlt(data, pred)}
-            # else:
+            
             results_i = {}
-            # for th in test_thresholds:
-            #     pose_results_i = eval_homography_robust(
-            #         data,
-            #         pred,
-            #         {"estimator": conf.estimator, "ransac_th": th},
-            #     )
-            #     [pose_results[th][k].append(v) for k, v in pose_results_i.items()]
 
             # we also store the names for later reference
             results_i["names"] = data["name"][0]
@@ -165,14 +141,6 @@ class HPatchesPipeline(EvalPipeline):
                 continue
             summaries[f"m{k}"] = round(np.median(arr), 3)
 
-        # auc_ths = [1, 3, 5]
-        # best_pose_results, best_th = eval_poses(
-        #     pose_results, auc_ths=auc_ths, key="H_error_ransac", unit="px"
-        # )
-        if "H_error_dlt" in results.keys():
-            dlt_aucs = AUCMetric(auc_ths, results["H_error_dlt"]).compute()
-            for i, ath in enumerate(auc_ths):
-                summaries[f"H_error_dlt@{ath}px"] = dlt_aucs[i]
         if "repeatability" in results.keys():
             for i,th in enumerate(self.conf.repeatability_th):
                 cur_nums = list(map(lambda x:x[i],results["repeatability"]))
@@ -182,26 +150,7 @@ class HPatchesPipeline(EvalPipeline):
                 cur_nums = list(map(lambda x:x[i],results["loc_error"]))
                 summaries[f"loc_error@{th}lines"] = round(np.median(cur_nums),3)
 
-
-        results = {**results,
-                   #**pose_results[best_th]
-                   }
-        summaries = {
-            **summaries,
-            #**best_pose_results,
-        }
-
-        figures = {
-            # "homography_recall": plot_cumulative(
-            #     {
-            #         "DLT": results["H_error_dlt"],
-            #         self.conf.eval.estimator: results["H_error_ransac"],
-            #     },
-            #     [0, 10],
-            #     unit="px",
-            #     title="Homography ",
-            # )
-        }
+        figures = {}
 
         return summaries, figures, results
 
