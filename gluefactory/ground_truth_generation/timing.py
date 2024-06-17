@@ -101,7 +101,7 @@ def get_dataset_and_loader(num_workers, batch_size):  # folder where dataset ima
         'preprocessing': {
             'resize': [800, 800]
         },
-        'train_batch_size': batch_size,  # prefix must match split mode
+        'test_batch_size': batch_size,  # prefix must match split mode
         'num_workers': num_workers,
         'split': 'test'  # test is not shuffled, train is -> to get consistent results on same images, use test
     }

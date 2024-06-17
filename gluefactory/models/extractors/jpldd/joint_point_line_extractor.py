@@ -13,9 +13,8 @@ from gluefactory.models.base_model import BaseModel
 from gluefactory.models.extractors.jpldd.backbone_encoder import AlikedEncoder, aliked_cfgs
 from gluefactory.models.extractors.jpldd.descriptor_head import SDDH
 from gluefactory.models.extractors.jpldd.keypoint_decoder import SMH
-from gluefactory.models.extractors.jpldd.keypoint_detection import SimpleDetector, DKD, DKDLight
+from gluefactory.models.extractors.jpldd.keypoint_detection import DKDLight
 from gluefactory.models.extractors.jpldd.utils import InputPadder, change_dict_key, sync_and_time
-from gluefactory.models.extractors.jpldd.metrics_points import compute_pr, compute_loc_error, compute_repeatability
 import gluefactory.models.extractors.jpldd.metrics_lines as LineMetrics
 from gluefactory.datasets.homographies_deeplsd import sample_homography
 from kornia.geometry.transform import warp_perspective
@@ -471,7 +470,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
             warped_lines = warped_outputs["lines"]
             rep_lines, loc_error_lines = LineMetrics.get_rep_and_loc_error(lines,warped_lines,Hs.cpu().numpy(),predictions[0].shape)
             out['repeatability_lines'] = torch.tensor([rep_lines], dtype=torch.float, device=device)
-            out['loc_error_lines'] =  torch.tensor([loc_error_lines], dtype=torch.float, device=device)
+            out['loc_error_lines'] = torch.tensor([loc_error_lines], dtype=torch.float, device=device)
 
         return out
 

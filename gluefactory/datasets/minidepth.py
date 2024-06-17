@@ -8,7 +8,7 @@ import torch
 import logging
 
 from gluefactory.datasets import BaseDataset
-from gluefactory.settings import DATA_PATH, cluster_team_folder
+from gluefactory.settings import DATA_PATH
 from gluefactory.utils.image import load_image, ImagePreprocessor
 
 logger = logging.getLogger(__name__)
@@ -120,8 +120,8 @@ class _Dataset(torch.utils.data.Dataset):
         logger.info(f"NUMBER OF IMAGES: {len(self.image_paths)}")
         # Load features
         if conf.load_features.do:
-            self.point_gt_location = cluster_team_folder / conf.load_features.point_gt.path
-            self.line_gt_location = cluster_team_folder / conf.load_features.line_gt.path
+            self.point_gt_location = DATA_PATH / conf.load_features.point_gt.path
+            self.line_gt_location = DATA_PATH / conf.load_features.line_gt.path
             # filter out where missing groundtruth
             new_img_path_list = []
             for img_path in self.image_paths:
