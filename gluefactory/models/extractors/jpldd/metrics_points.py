@@ -1,5 +1,6 @@
 import numpy as np
 from gluefactory.datasets.homographies_deeplsd import sample_homography
+from gluefactory.models.extractors.jpldd.metrics_lines import match_segments_1_to_1,compute_repeatability
 import torch
 from kornia.geometry.transform import warp_perspective
 
@@ -146,7 +147,7 @@ def compute_loc_error(data: np.array, pred: np.array, prob_thresh=0.3, distance_
     return np.mean(errors) if len(errors) > 0 else float(distance_thresh)
 
 
-def compute_repeatability(data: np.array, pred: np.array, images: torch.Tensor, net, device,
+def compute_repeatability(pred: np.array, warped_pred: np.array, Hs: np.array,
                             max_detections=2000,keep_k_points=300,distance_thresh=5, verbose=False):
     """
     Compute the repeatability. The experiment must contain in its output the prediction
@@ -187,26 +188,22 @@ def compute_repeatability(data: np.array, pred: np.array, images: torch.Tensor, 
     repeatability = []
     N1s = []
     N2s = []
-    for i in range(len(data)):
-        cur_data = data[i]
+    for i in range(len(pred)):
         cur_pred = pred[i]
-        shape = (cur_data.shape[0],cur_data.shape[1])
-        H = torch.tensor(sample_homography(shape,**default_H_params),dtype=torch.float, device=device)
-        warped_img = warp_perspective(torch.tensor(images[i],device=device).unsqueeze(0),H.unsqueeze(0),shape, mode='bilinear')
-        with torch.no_grad():
-            warped_prob = net({"image": warped_img})["keypoint_and_junction_score_map"].cpu().numpy().squeeze()
+        cur_warped_pred = warped_pred[i]
+        shape = (cur_pred.shape[0],cur_pred.shape[1])
         # Filter out predictions
         flat_indices = np.argpartition(cur_pred,-max_detections,axis=None)[-max_detections:]
         keypoints = np.unravel_index(flat_indices,cur_pred.shape)
         prob = cur_pred[keypoints[0], keypoints[1]]
         keypoints = np.stack([keypoints[0], keypoints[1]], axis=-1)
-        flat_indices = np.argpartition(warped_prob,-max_detections,axis=None)[-max_detections:]
-        warped_keypoints = np.unravel_index(flat_indices,warped_prob.shape)
-        warped_prob = warped_prob[warped_keypoints[0], warped_keypoints[1]]
+        flat_indices = np.argpartition(cur_warped_pred,-max_detections,axis=None)[-max_detections:]
+        warped_keypoints = np.unravel_index(flat_indices,cur_warped_pred.shape)
+        warped_prob = cur_warped_pred[warped_keypoints[0], warped_keypoints[1]]
         warped_keypoints = np.stack([warped_keypoints[0],
                                      warped_keypoints[1],
                                      warped_prob], axis=-1)
-        H_np = H.cpu().numpy()
+        H_np = Hs[i].cpu().numpy()
         warped_keypoints = keep_true_keypoints(warped_keypoints, np.linalg.inv(H_np),
                                                shape)
 

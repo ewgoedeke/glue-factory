@@ -47,7 +47,12 @@ def fine_line_filter(
         new_lines = lines.mT
         merged_lines = merge_lines(new_lines, thresh=merge_thresh, overlap_thresh=0.).float()
         lines = merged_lines.mT
+    start_x = lines[:, 1, 0]
+    start_y = lines[:, 0, 0]
+    end_x = lines[:, 1, 1]
+    end_y = lines[:, 0, 1]
 
+    lines = torch.stack([torch.stack([start_x, start_y], dim=1), torch.stack([end_x, end_y], dim=1)], dim=1)
     return lines
 
 def coarse_line_filter(
@@ -106,14 +111,14 @@ def coarse_line_filter(
 
 
 def detect_jpldd_lines(
-    df: np.array, af: np.array, keypoints: np.array,n_samples:int=10, df_thresh:int=2, 
+    df: np.array, af: np.array, keypoints: np.array,img_size,n_samples:int=10, df_thresh:int=2, 
     inlier_thresh:float=0.7, a_diff_thresh:float=np.pi/20,a_std_thresh=np.pi/30,a_inlier_thresh=0.5,
-    min_len:int=10,merge:bool=False,merge_thresh:int=4
+    min_len:int=10,merge:bool=False,merge_thresh:int=4,
 ):
     line_candidates = create_line_candidates(keypoints)
     prelim_valid_lines,points,angles,direction = coarse_line_filter(
         line_candidates,df,af,n_samples=n_samples,df_thresh=df_thresh + 0.5,a_diff_thresh=a_diff_thresh * 2,
-        a_std_thresh=a_std_thresh * 3,a_inlier_thresh=a_inlier_thresh / 3,min_len=min_len,max_len=150
+        a_std_thresh=a_std_thresh * 3,a_inlier_thresh=a_inlier_thresh / 3,min_len=min_len,max_len=0.25*min(img_size)
     )
     valid_lines = fine_line_filter(
         prelim_valid_lines, points, angles,direction,df_thresh=df_thresh,inlier_thresh=inlier_thresh,a_diff_thresh=a_diff_thresh,
