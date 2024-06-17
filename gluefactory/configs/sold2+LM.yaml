@@ -9,6 +9,7 @@ model:
     #checkpoint: rk_jpldd_11/checkpoint_best.tar
   matcher:
     name: matchers.line_matcher
+    line_dist: struct
 benchmarks:
   megadepth1500:
     data:

@@ -28,10 +28,7 @@ class SOLD2(BaseModel):
         lines = []
         for i in range(len(segs)):
             cur = segs[i]
-            tmp = cur.clone()
-            tmp[:,0,0],tmp[:,0,1]  = cur[:,0,1],cur[:,0,0] 
-            tmp[:,1,0],tmp[:,1,1]  = cur[:,1,1],cur[:,1,0] 
-            lines.append(tmp)
+            lines.append(cur[:,:,[1,0]])
 
 
         return {"lines": lines}

@@ -49,7 +49,7 @@ class HPatchesPipeline(EvalPipeline):
         },
         "use_points": True,
         "use_lines": False,
-        "repeatability_th": [1,3,5,10],
+        "repeatability_th": [1,3,5],
         "num_lines_th": [10,50,300]
     }
     export_keys = []
@@ -145,11 +145,13 @@ class HPatchesPipeline(EvalPipeline):
             results_i["scenes"] = data["scene"][0]
 
             if "lines0" in pred:
-                results_i["repeatability"] = compute_repeatability(pred["lines0"].cpu().numpy(),
-                                                                pred["lines1"].cpu().numpy(),  pred["line_matches0"].cpu().numpy(),
+                lines0 = pred["lines0"].cpu().numpy()
+                lines1 = pred["lines1"].cpu().numpy()
+                results_i["repeatability"] = compute_repeatability(lines0,lines1,  pred["line_matches0"].cpu().numpy(),
                                                                 pred["line_matches1"].cpu().numpy(),pred["line_matching_scores0"].cpu().numpy(),
                                                                 self.conf.repeatability_th, rep_type='num')
                 results_i["loc_error"] = compute_loc_error(pred["line_matching_scores0"].cpu().numpy(), self.conf.num_lines_th)
+                results_i["num_lines"] = (lines0.shape[0] + lines1.shape[0])/2
 
             for k, v in results_i.items():
                 results[k].append(v)

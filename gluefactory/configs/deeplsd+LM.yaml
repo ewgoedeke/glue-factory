@@ -7,6 +7,7 @@ model:
 
     matcher:
         name: matchers.line_matcher
+        line_dist: struct
 benchmarks:
     megadepth1500:
         data:

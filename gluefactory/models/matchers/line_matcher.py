@@ -13,7 +13,7 @@ class LineMatcher(BaseModel):
         "line_dist": "orth",
         "angular_th": (30 * np.pi / 180),
         "overlap_th": 0.5,
-        "dist_thresh": 10,
+        "dist_thresh": 5,
         "min_length": 20
     }
 
@@ -27,8 +27,8 @@ class LineMatcher(BaseModel):
         device = data["lines0"][0].device
         img_size = data["view0"]["image"].shape[2],data["view0"]["image"].shape[3]
         result = {}
-        lines0 = data["lines0"][0].cpu().numpy()
-        lines1 = data["lines1"][0].cpu().numpy()
+        lines0 = data["lines0"][0].cpu().numpy()[:, :, [1, 0]]
+        lines1 = data["lines1"][0].cpu().numpy()[:, :, [1, 0]]
         lines0 = lines0[
             np.linalg.norm(lines0[:, 1] - lines0[:, 0], axis=1) > self.conf.min_length]
         lines1 = lines1[
