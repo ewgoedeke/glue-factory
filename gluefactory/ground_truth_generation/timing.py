@@ -3,19 +3,14 @@ Run the homography adaptation with Superpoint for all images in the minidepth da
 Goal: create groundtruth with superpoint. Format: stores groundtruth for every image in a separate file.
 """
 
-import gc
 import argparse
-from pathlib import Path
 
 import numpy as np
-import cv2
-import h5py
 import torch
 import time
 
 from omegaconf import OmegaConf
 from tqdm import tqdm
-from joblib import Parallel, delayed
 
 from gluefactory.settings import EVAL_PATH
 from gluefactory.datasets import get_dataset
@@ -23,9 +18,6 @@ from gluefactory.models.extractors.superpoint_open import SuperPoint
 from omegaconf import OmegaConf
 
 from gluefactory.models import get_model
-from gluefactory.models.lines.deeplsd import DeepLSD
-from gluefactory.utils.image import numpy_image_to_torch
-from kornia.feature import SOLD2 as s2
 
 model_configs = {
     "aliked": {
@@ -173,7 +165,6 @@ if __name__ == "__main__":
     config = model_configs[args.config]
     model_name = config["name"]
     model = get_model(model_name)(config)
-    # model = s2()
     model.eval().to(device)
 
     run_measurement(dataloader, model, args.num_s, model_name)
