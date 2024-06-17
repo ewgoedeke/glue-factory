@@ -4,7 +4,6 @@ from kornia.geometry.transform import warp_perspective
 from kornia.morphology import erosion
 from gluefactory.datasets.homographies_deeplsd import sample_homography
 from gluefactory.models.lines.deeplsd import DeepLSD
-from memory_profiler import profile
 
 default_H_params = {
     'translation': True,

@@ -11,7 +11,6 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from omegaconf import OmegaConf
-from tqdm import tqdm
 import os
 import multiprocessing
 
