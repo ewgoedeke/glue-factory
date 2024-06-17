@@ -20,5 +20,5 @@ cd /home/fmoeller/glue-factory
 
 # !! if copying this script as a template, change experiment name and path to config(create new config) !!
 # Run script (adapt distributed and restore if needed)
-python -m gluefactory.eval.hpatches --conf=jpldd+LM --overwrite
+python -m gluefactory.eval.hpatches_lines --conf=jpldd+LM --overwrite
 echo "Finished training!"

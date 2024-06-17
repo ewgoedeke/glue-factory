@@ -24,6 +24,7 @@ from .utils import (
     eval_matches_homography,
     eval_poses,
 )
+from gluefactory.models.extractors.jpldd.metrics_lines import compute_loc_error,compute_repeatability
 
 
 class HPatchesPipeline(EvalPipeline):
@@ -31,7 +32,7 @@ class HPatchesPipeline(EvalPipeline):
         "data": {
             "batch_size": 1,
             "name": "hpatches",
-            "num_workers": 16,
+            "num_workers": 2,
             "preprocessing": {
                 "resize": 480,  # we also resize during eval to have comparable metrics
                 "side": "short",
@@ -46,17 +47,12 @@ class HPatchesPipeline(EvalPipeline):
             "estimator": "poselib",
             "ransac_th": 1.0,  # -1 runs a bunch of thresholds and selects the best
         },
+        "use_points": True,
+        "use_lines": False,
+        "repeatability_th": [1,3,5],
+        "num_lines_th": [10,50,300]
     }
-    export_keys = [
-        "keypoints0",
-        "keypoints1",
-        "keypoint_scores0",
-        "keypoint_scores1",
-        "matches0",
-        "matches1",
-        "matching_scores0",
-        "matching_scores1",
-    ]
+    export_keys = []
 
     optional_export_keys = [
         "lines0",
@@ -67,10 +63,30 @@ class HPatchesPipeline(EvalPipeline):
         "line_matches1",
         "line_matching_scores0",
         "line_matching_scores1",
+        "line_distances"
     ]
 
     def _init(self, conf):
-        pass
+        if conf.use_points:
+            self.export_keys += [
+                "keypoints0",
+                "keypoints1",
+                "keypoint_scores0",
+                "keypoint_scores1",
+                "matches0",
+                "matches1",
+                "matching_scores0",
+                "matching_scores1",
+            ]
+        if conf.use_lines:
+            self.export_keys += [
+                "lines0",
+                "lines1",
+                "line_matches0",
+                "line_matches1",
+                "line_matching_scores0",
+                "line_matching_scores1"
+            ]
 
     @classmethod
     def get_dataloader(self, data_conf=None):
@@ -110,22 +126,32 @@ class HPatchesPipeline(EvalPipeline):
             # Remove batch dimension
             data = map_tensor(data, lambda t: torch.squeeze(t, dim=0))
             # add custom evaluations here
-            if "keypoints0" in pred:
-                results_i = eval_matches_homography(data, pred)
-                results_i = {**results_i, **eval_homography_dlt(data, pred)}
-            else:
-                results_i = {}
-            for th in test_thresholds:
-                pose_results_i = eval_homography_robust(
-                    data,
-                    pred,
-                    {"estimator": conf.estimator, "ransac_th": th},
-                )
-                [pose_results[th][k].append(v) for k, v in pose_results_i.items()]
+
+            # if "keypoints0" in pred:
+            #     results_i = eval_matches_homography(data, pred)
+            #     results_i = {**results_i, **eval_homography_dlt(data, pred)}
+            # else:
+            results_i = {}
+            # for th in test_thresholds:
+            #     pose_results_i = eval_homography_robust(
+            #         data,
+            #         pred,
+            #         {"estimator": conf.estimator, "ransac_th": th},
+            #     )
+            #     [pose_results[th][k].append(v) for k, v in pose_results_i.items()]
 
             # we also store the names for later reference
             results_i["names"] = data["name"][0]
             results_i["scenes"] = data["scene"][0]
+
+            if "lines0" in pred:
+                lines0 = pred["lines0"].cpu().numpy()
+                lines1 = pred["lines1"].cpu().numpy()
+                results_i["repeatability"] = compute_repeatability(lines0,lines1,  pred["line_matches0"].cpu().numpy(),
+                                                                pred["line_matches1"].cpu().numpy(),pred["line_matching_scores0"].cpu().numpy(),
+                                                                self.conf.repeatability_th, rep_type='num')
+                results_i["loc_error"] = compute_loc_error(pred["line_matching_scores0"].cpu().numpy(), self.conf.num_lines_th)
+                results_i["num_lines"] = (lines0.shape[0] + lines1.shape[0])/2
 
             for k, v in results_i.items():
                 results[k].append(v)
@@ -139,31 +165,42 @@ class HPatchesPipeline(EvalPipeline):
                 continue
             summaries[f"m{k}"] = round(np.median(arr), 3)
 
-        auc_ths = [1, 3, 5]
-        best_pose_results, best_th = eval_poses(
-            pose_results, auc_ths=auc_ths, key="H_error_ransac", unit="px"
-        )
+        # auc_ths = [1, 3, 5]
+        # best_pose_results, best_th = eval_poses(
+        #     pose_results, auc_ths=auc_ths, key="H_error_ransac", unit="px"
+        # )
         if "H_error_dlt" in results.keys():
             dlt_aucs = AUCMetric(auc_ths, results["H_error_dlt"]).compute()
             for i, ath in enumerate(auc_ths):
                 summaries[f"H_error_dlt@{ath}px"] = dlt_aucs[i]
+        if "repeatability" in results.keys():
+            for i,th in enumerate(self.conf.repeatability_th):
+                cur_nums = list(map(lambda x:x[i],results["repeatability"]))
+                summaries[f"repeatability@{th}px"] = round(np.median(cur_nums),3)
+        if "loc_error" in results.keys():
+            for i,th in enumerate(self.conf.num_lines_th):
+                cur_nums = list(map(lambda x:x[i],results["loc_error"]))
+                summaries[f"loc_error@{th}lines"] = round(np.median(cur_nums),3)
 
-        results = {**results, **pose_results[best_th]}
+
+        results = {**results,
+                   #**pose_results[best_th]
+                   }
         summaries = {
             **summaries,
-            **best_pose_results,
+            #**best_pose_results,
         }
 
         figures = {
-            "homography_recall": plot_cumulative(
-                {
-                    "DLT": results["H_error_dlt"],
-                    self.conf.eval.estimator: results["H_error_ransac"],
-                },
-                [0, 10],
-                unit="px",
-                title="Homography ",
-            )
+            # "homography_recall": plot_cumulative(
+            #     {
+            #         "DLT": results["H_error_dlt"],
+            #         self.conf.eval.estimator: results["H_error_ransac"],
+            #     },
+            #     [0, 10],
+            #     unit="px",
+            #     title="Homography ",
+            # )
         }
 
         return summaries, figures, results

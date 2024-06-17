@@ -20,8 +20,6 @@ from .eval_pipeline import EvalPipeline
 from .io import get_eval_parser, load_model, parse_eval_args
 from .utils import eval_matches_epipolar, eval_poses, eval_relative_pose_robust
 
-from gluefactory.models.extractors.jpldd.metrics_lines import compute_loc_error,compute_repeatability
-
 logger = logging.getLogger(__name__)
 
 
@@ -45,8 +43,6 @@ class MegaDepth1500Pipeline(EvalPipeline):
             "estimator": "poselib",
             "ransac_th": 1.0,  # -1 runs a bunch of thresholds and selects the best
         },
-        "repeatability_th": [1,3,5],
-        "num_lines_th": [10,50,300]
     }
 
     export_keys = [
@@ -59,17 +55,7 @@ class MegaDepth1500Pipeline(EvalPipeline):
         "matching_scores0",
         "matching_scores1",
     ]
-    optional_export_keys = [
-        "lines0",
-        "lines1",
-        "orig_lines0",
-        "orig_lines1",
-        "line_matches0",
-        "line_matches1",
-        "line_matching_scores0",
-        "line_matching_scores1",
-        "line_distances"
-    ]
+    optional_export_keys = []
 
     def _init(self, conf):
         if not (DATA_PATH / "megadepth1500").exists():
@@ -132,11 +118,6 @@ class MegaDepth1500Pipeline(EvalPipeline):
             if "scene" in data.keys():
                 results_i["scenes"] = data["scene"][0]
 
-            if "lines0" in pred:
-                results_i["repeatability"] = compute_repeatability(pred["lines0"], pred["lines1"],  pred["line_matches0"],  pred["line_matches1"],
-                                                    pred["line_distances"], self.conf.repeatability_th, rep_type='num')
-                results_i["loc_error"] = compute_loc_error(pred["line_distances"], self.conf.num_lines_th)
-
             for k, v in results_i.items():
                 results[k].append(v)
 
@@ -152,16 +133,6 @@ class MegaDepth1500Pipeline(EvalPipeline):
         best_pose_results, best_th = eval_poses(
             pose_results, auc_ths=[5, 10, 20], key="rel_pose_error"
         )
-
-        if "repeatability" in results.keys():
-            for i,th in self.conf.repeatability_th:
-                cur_nums = map(lambda x:x[i],results["repeatability"])
-                summaries[f"repeatability@{th}px"] = round(np.median(cur_nums),3)
-        if "loc_error" in results.keys():
-            for i,th in enumerate(self.conf.num_lines_th):
-                cur_nums = map(lambda x:x[i],results["loc_error"])
-                summaries[f"loc_error@{th}lines"] = round(np.median(cur_nums),3)
-
         results = {**results, **pose_results[best_th]}
         summaries = {
             **summaries,
