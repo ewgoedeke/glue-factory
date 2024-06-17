@@ -1,4 +1,5 @@
 import time
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -8,7 +9,6 @@ import numpy as np
 
 from omegaconf import OmegaConf
 
-from gluefactory import load_experiment
 from gluefactory.models import get_model
 from gluefactory.models.base_model import BaseModel
 from gluefactory.models.extractors.jpldd.backbone_encoder import AlikedEncoder, aliked_cfgs
@@ -21,8 +21,6 @@ import gluefactory.models.extractors.jpldd.metrics_lines as LineMetrics
 from gluefactory.datasets.homographies_deeplsd import sample_homography
 from kornia.geometry.transform import warp_perspective
 from gluefactory.models.extractors.jpldd.metrics_points import compute_pr, compute_loc_error, compute_repeatability
-from gluefactory.models.extractors.jpldd.line_detection_lsd import detect_afm_lines
-from gluefactory.settings import TRAINING_PATH
 from gluefactory.models.extractors.jpldd.new_line_detection_jpldd import detect_jpldd_lines
 
 default_H_params = {
@@ -40,6 +38,7 @@ default_H_params = {
 
 to_ctr = OmegaConf.to_container  # convert DictConfig to dict
 aliked_checkpoint_url = "https://github.com/Shiaoming/ALIKED/raw/main/models/{}.pth"  # used for training based on ALIKED weights
+jpldd_checkpoint_url = "https://filedn.com/lt6zb4ORSwapNyVniJf1Pqh/checkpoint_jpldd_10.tar"
 logger = logging.getLogger(__file__)
 
 
@@ -70,9 +69,9 @@ class JointPointLineDetectorDescriptor(BaseModel):
         },
         "line_detection": {
             "do": True,
-            "merge" : False
+            "merge": False
         },
-        "checkpoint": TRAINING_PATH / "rk_jpldd_11_refine_10/checkpoint_best.tar",  # if given and non-null, load model checkpoint
+        "checkpoint": str(jpldd_checkpoint_url),  # if given and non-null, load model checkpoint if local path load locally if standard url download it.
         "nms_radius": 3,
         "line_neighborhood": 5,  # used to normalize / denormalize line distance field
         "timeit": True,  # override timeit: False from BaseModel
@@ -163,16 +162,13 @@ class JointPointLineDetectorDescriptor(BaseModel):
                 aliked_gt_cfg).eval()
 
         # load model checkpoint if given -> only load weights
-        if conf.checkpoint is not None:
+        if conf.checkpoint is not None and Path(conf.checkpoint).exists():
             logger.warning(f"Load model parameters from checkpoint {conf.checkpoint}")
             chkpt = torch.load(conf.checkpoint, map_location=torch.device('cpu'))
             self.load_state_dict(chkpt["model"], strict=True)
-
-        # load model checkpoint if given -> only load weights
-        if conf.checkpoint is not None:
-            logger.warning(f"Load model parameters from checkpoint {conf.checkpoint}")
-            st_dict = torch.load(conf.checkpoint, map_location=torch.device('cpu'))
-            self.load_state_dict(st_dict, strict=False)
+        elif conf.checkpoint is not None:
+            chkpt = torch.hub.load_state_dict_from_url(conf.checkpoint, map_location=torch.device('cpu'))
+            self.load_state_dict(chkpt["model"], strict=True)
 
     # Utility methods for line df and af with deepLSD
     def normalize_df(self, df):
