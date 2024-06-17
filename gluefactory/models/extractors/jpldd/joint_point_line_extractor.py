@@ -1,7 +1,6 @@
-import time
+import torch
 from pathlib import Path
 
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import logging
@@ -15,7 +14,7 @@ from gluefactory.models.extractors.jpldd.backbone_encoder import AlikedEncoder, 
 from gluefactory.models.extractors.jpldd.descriptor_head import SDDH
 from gluefactory.models.extractors.jpldd.keypoint_decoder import SMH
 from gluefactory.models.extractors.jpldd.keypoint_detection import SimpleDetector, DKD, DKDLight
-from gluefactory.models.extractors.jpldd.utils import InputPadder, change_dict_key
+from gluefactory.models.extractors.jpldd.utils import InputPadder, change_dict_key, sync_and_time
 from gluefactory.models.extractors.jpldd.metrics_points import compute_pr, compute_loc_error, compute_repeatability
 import gluefactory.models.extractors.jpldd.metrics_lines as LineMetrics
 from gluefactory.datasets.homographies_deeplsd import sample_homography
@@ -182,7 +181,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         Perform a forward pass. Certain things are only executed NOT in training mode.
         """
         if self.conf.timeit:
-            total_start = time.time()
+            total_start = sync_and_time()
         # output container definition
         output = {}
 
@@ -196,19 +195,17 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
         # pass through encoder
         if self.conf.timeit:
-            start_encoder = time.time()
-            feature_map_padded = self.encoder_backbone(padded_img)
-            self.timings["encoder"].append(time.time() - start_encoder)
-        else:
-            feature_map_padded = self.encoder_backbone(padded_img)
+            start_encoder = sync_and_time()
+        feature_map_padded = self.encoder_backbone(padded_img)
+        if self.conf.timeit:
+            self.timings["encoder"].append(sync_and_time() - start_encoder)
 
         # pass through keypoint & junction decoder
         if self.conf.timeit:
-            start_keypoints = time.time()
-            score_map_padded = self.keypoint_and_junction_branch(feature_map_padded)
-            self.timings["keypoint-and-junction-heatmap"].append(time.time() - start_keypoints)
-        else:
-            score_map_padded = self.keypoint_and_junction_branch(feature_map_padded)
+            start_keypoints = sync_and_time()
+        score_map_padded = self.keypoint_and_junction_branch(feature_map_padded)
+        if self.conf.timeit:
+            self.timings["keypoint-and-junction-heatmap"].append(sync_and_time() - start_keypoints)
 
         # normalize and remove padding and format dimensions
         feature_map_padded_normalized = torch.nn.functional.normalize(feature_map_padded, p=2, dim=1)
@@ -227,24 +224,21 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
         # Line AF Decoder
         if self.conf.timeit:
-            start_line_af = time.time()
-            line_angle_field = self.angle_field_branch(
-                feature_map) * torch.pi  # multipy with pi as output is in [0, 1] and we want to get angle
-            self.timings["line-af"].append(time.time() - start_line_af)
-        else:
-            line_angle_field = self.angle_field_branch(feature_map) * torch.pi
+            start_line_af = sync_and_time()
+        line_angle_field = self.angle_field_branch(
+            feature_map) * torch.pi  # multipy with pi as output is in [0, 1] and we want to get angle
+        if self.conf.timeit:
+            self.timings["line-af"].append(sync_and_time() - start_line_af)
 
         # Line DF Decoder
         if self.conf.timeit:
-            start_line_df = time.time()
-            line_distance_field = self.denormalize_df(self.distance_field_branch(
-                feature_map))  # denormalize as NN outputs normalized version which is focused on line neighborhood
-            self.timings["line-df"].append(time.time() - start_line_df)
-        else:
-            line_distance_field = self.denormalize_df(self.distance_field_branch(feature_map))
+            start_line_df = sync_and_time()
+        line_distance_field = self.denormalize_df(self.distance_field_branch(
+            feature_map))  # denormalize as NN outputs normalized version which is focused on line neighborhood
+        if self.conf.timeit:
+            self.timings["line-df"].append(sync_and_time() - start_line_df)
 
         # remove additional dimensions of size 1 if not having batchsize one
-        assert line_angle_field.shape == line_distance_field.shape
         if line_angle_field.shape[0] == 1:
             line_angle_field = line_angle_field[:, 0, :, :]
             line_distance_field = line_distance_field[:, 0, :, :]
@@ -257,15 +251,13 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
         # Keypoint detection
         if self.conf.timeit:
-            start_keypoints = time.time()
-            keypoints, kptscores = self.dkd(
-                keypoint_and_junction_score_map,
-            )
-            self.timings["keypoint-detection"].append(time.time() - start_keypoints)
-        else:
-            keypoints, kptscores = self.dkd(
-                keypoint_and_junction_score_map,
-            )
+            start_keypoints = sync_and_time()
+
+        keypoints, kptscores = self.dkd(
+            keypoint_and_junction_score_map,
+        )
+        if self.conf.timeit:
+            self.timings["keypoint-detection"].append(sync_and_time() - start_keypoints)
 
         # raw output of DKD needed to generate GT-Descriptors
         if self.conf.training.train_descriptors.do:
@@ -273,30 +265,32 @@ class JointPointLineDetectorDescriptor(BaseModel):
 
         _, _, h, w = image.shape
         wh = torch.tensor([w, h], device=image.device)
-        # no padding required,
-        # can set detection_threshold=-1 and conf.max_num_keypoints -> HERE WE SET THESE VALUES SO WE CAN EXPECT SAME NUM!
+        # no padding required, can set detection_threshold=-1 and conf.max_num_keypoints -> HERE WE SET THESE VALUES
+        # SO WE CAN EXPECT SAME NUM!
         output["keypoints"] = wh * (torch.stack(keypoints) + 1.) / 2.0
         output["keypoint_scores"] = torch.stack(kptscores)
 
         # Keypoint descriptors
         if self.conf.timeit:
-            start_desc = time.time()
-            keypoint_descriptors, _ = self.descriptor_branch(feature_map, keypoints)
-            self.timings["descriptor-branch"].append(time.time() - start_desc)
-        else:
-            keypoint_descriptors, _ = self.descriptor_branch(feature_map, keypoints)
+            start_desc = sync_and_time()
+
+        keypoint_descriptors, _ = self.descriptor_branch(feature_map, keypoints)
+
+        if self.conf.timeit:
+            self.timings["descriptor-branch"].append(sync_and_time() - start_desc)
+
         output["descriptors"] = torch.stack(keypoint_descriptors)  # B N D
 
         # Extract Lines from Learned Part of the Network
         # Only Perform line detection when NOT in training mode
         if self.conf.line_detection.do and not self.training:
             if self.conf.timeit:
-                start_lines = time.time()
+                start_lines = sync_and_time()
             lines = []
-            np_df = output["line_distancefield"]#.cpu().numpy()
-            np_al = output["line_anglefield"]#.cpu().numpy()
+            np_df = output["line_distancefield"]  # .cpu().numpy()
+            np_al = output["line_anglefield"]  # .cpu().numpy()
             np_kp = output["keypoints"]
-            for df, af,kp in zip(np_df, np_al,np_kp):
+            for df, af, kp in zip(np_df, np_al, np_kp):
                 img_lines = detect_jpldd_lines(
                     df,af,kp,(h,w),merge=self.conf.line_detection.merge
                 )
@@ -306,10 +300,10 @@ class JointPointLineDetectorDescriptor(BaseModel):
             line_descriptors = None
             output["line_descriptors"] = line_descriptors
             if self.conf.timeit:
-                self.timings["line-detection"].append(time.time() - start_lines)
+                self.timings["line-detection"].append(sync_and_time() - start_lines)
 
         if self.conf.timeit:
-            self.timings["total-makespan"].append(time.time() - total_start)
+            self.timings["total-makespan"].append(sync_and_time() - total_start)
         return output
 
     def loss(self, pred, data):
@@ -401,6 +395,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
             else:
                 continue
 
+
         # load values
         self.load_state_dict(aliked_state_dict, strict=False)
 
@@ -479,7 +474,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
             out['loc_error_lines'] =  torch.tensor([loc_error_lines], dtype=torch.float, device=device)
 
         return out
-    
+
     def _get_warped_outputs(self,data):
         imgs = data["image"]
         device = data["image"].device

@@ -8,28 +8,23 @@ import argparse
 import numpy as np
 import torch
 import time
-
-from omegaconf import OmegaConf
 from tqdm import tqdm
 
-from gluefactory.settings import EVAL_PATH
-from gluefactory.datasets import get_dataset
-from gluefactory.models.extractors.superpoint_open import SuperPoint
 from omegaconf import OmegaConf
 
+from gluefactory.datasets import get_dataset
 from gluefactory.models import get_model
+from gluefactory.utils.tensor import batch_to_device
 
 model_configs = {
     "aliked": {
         "name": 'extractors.aliked',
-        "trainable": False,
         "max_num_keypoints": 1024,
-        "nms_radius": 4,
+        "model_name": "aliked-n16",
         "detection_threshold": -1,
-        "trainings": {'do': False},
-        "channels": [64, 64, 128, 128, 256],
-        "dense_outputs": None,
-        "weights": None,  # local path of pretrained weights
+        "force_num_keypoints": False,
+        "pretrained": True,
+        "nms_radius": 4
     },
 
     "sp": {
@@ -90,27 +85,25 @@ model_configs = {
         "line_detection": {
             "do": True,
         },
-        # "checkpoint": "../../../teamfolder/outputs/training/rk_jpldd_08_correct_gt_step3/checkpoint_best.tar",
-        "checkpoint": "../../../teamfolder/outputs/training/rk_jpldd_09_pretrained_faster/checkpoint_best.tar",
-        "nms_radius": 2,
+        "nms_radius": 4,
         "line_neighborhood": 5,  # used to normalize / denormalize line distance field
         "timeit": False,  # override timeit: False from BaseModel
-        # "line_df_decoder_channels": 64,
+        # "line_df_decoder_channels": 64, # uncomment it for models having the old number of channels
         # "line_af_decoder_channels": 64,
     }
 }
 
 
-def get_dataset_and_loader(num_workers):  # folder where dataset images are placed
+def get_dataset_and_loader(num_workers, batch_size):  # folder where dataset images are placed
     config = {
         'name': 'minidepth',  # name of dataset class in gluefactory > datasets
         'grayscale': False,  # commented out things -> dataset must also have these keys but has not
         'preprocessing': {
             'resize': [800, 800]
         },
-        'train_batch_size': 1,  # prefix must match split mode
+        'train_batch_size': batch_size,  # prefix must match split mode
         'num_workers': num_workers,
-        'split': 'test'  # if implemented by dataset class gives different splits
+        'split': 'test'  # test is not shuffled, train is -> to get consistent results on same images, use test
     }
     omega_conf = OmegaConf.create(config)
     dataset = get_dataset(omega_conf.name)(omega_conf)
@@ -118,55 +111,68 @@ def get_dataset_and_loader(num_workers):  # folder where dataset images are plac
     return loader
 
 
-def run_measurement(dataloader, model, num_s, name):
+def sync_and_time():
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+    t = time.time()
+    return t
+
+
+def run_measurement(dataloader, model, num_s, name, device, batch_size, do_jpldd_inner_timings=False):
     count = 0
     timings = []
-    for img in tqdm(dataloader):
-        if torch.cuda.is_available():
-            # scale = img['image'].new_tensor([0.299, 0.587, 0.114]).view(1, 3, 1, 1)
-            # gs_image = (img['image'] * scale).sum(1, keepdim=True)
-            # img = gs_image.to('cuda')
-            img['image'] = img['image'].to('cuda')
-            torch.cuda.synchronize()
-
+    for img in tqdm(dataloader, total=num_s//batch_size,):
+        img = batch_to_device(img, device, non_blocking=True)
         with torch.no_grad():
-            start = time.time()
+            start = sync_and_time()
             pred = model(img)
-            end = time.time()
-            timings.append((end - start))
-
-        count += 1
-
-        if count == num_s:
+            end = sync_and_time()
+            timings.append((end - start)/batch_size)
+        count += batch_size
+        if count >= num_s:
             break
-    print(f"*** RESULTS FOR {name} ON {num_s} IMAGES ***")
-    print(f"\tMean: {np.mean(timings)}")
-    print(f"\tMedian: {np.median(timings)}")
-    print(f"\tMax: {np.max(timings)}")
-    print(f"\tMin: {np.min(timings)}")
-    print(f"\tStd: {np.std(timings)}")
+
+    print(f"*** RESULTS FOR {name} ON {num_s} IMAGES WITH BATCH SIZE {batch_size} ***")
+    print(f"\tMean: {round(np.mean(timings), 6)}")
+    print(f"\tMedian: {round(np.median(timings), 6)}")
+    print(f"\tMax: {round(np.max(timings), 6)}")
+    print(f"\tMin: {round(np.min(timings), 6)}")
+    print(f"\tStd: {round(np.std(timings), 6)}")
+    if do_jpldd_inner_timings and name == "jpldd":
+        print(f"INNER TIMINGS JPLDD")
+        inner_timings = model.get_current_timings()
+        for k, v in inner_timings.items():
+            print(f"\t{k}: {round(v, 6)}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('config', type=str, choices=['aliked', 'sp', 'deeplsd', 'jpldd'])
     parser.add_argument('--num_s', type=int, default=100, help='Number of timing samples.')
+    parser.add_argument('--jpldd_inner_timings', action="store_true",
+                        help='activates measurement of single parts of the jpldd pipeline')
     parser.add_argument('--n_jobs_dataloader', type=int, default=1,
                         help='Number of jobs the dataloader uses to load images')
+    parser.add_argument('--batch_size', type=int, default=1,
+                        help='Batch size used for the model')
     args = parser.parse_args()
 
     print("NUMBER OF SAMPLES: ", args.num_s)
     print("MODEL TO TEST: ", args.config)
     print("N DATALOADER JOBS: ", args.n_jobs_dataloader)
+    if args.config == 'jpldd':
+        print("JPLDD-Inner timing activated: ", args.jpldd_inner_timings)
 
-    dataloader = get_dataset_and_loader(args.n_jobs_dataloader)
+    dataloader = get_dataset_and_loader(args.n_jobs_dataloader,args.batch_size)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     config = model_configs[args.config]
     model_name = config["name"]
+    if args.config == 'jpldd' and args.jpldd_inner_timings:
+        config["timeit"] = True
     model = get_model(model_name)(config)
+
     model.eval().to(device)
 
-    run_measurement(dataloader, model, args.num_s, model_name)
-
-
+    run_measurement(dataloader, model, args.num_s, args.config, device,args.batch_size,
+                    do_jpldd_inner_timings=args.jpldd_inner_timings)

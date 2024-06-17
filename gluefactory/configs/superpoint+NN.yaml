@@ -18,8 +18,8 @@ benchmarks:
             ransac_th: 1.0
     hpatches:
         eval:
-            estimator: opencv
-            ransac_th: 0.5
+            estimator: poselib
+            ransac_th: -1
         model:
             extractor:
                 max_num_keypoints: 1024  # overwrite config above
