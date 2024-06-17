@@ -51,7 +51,7 @@ class JointPointLineDetectorDescriptor(BaseModel):
         "line_af_decoder_channels": 32,
         "max_num_keypoints": 1000,  # setting for training, for eval: -1
         "detection_threshold": -1,  # setting for training, for eval: 0.2
-        "force_num_keypoints": True,
+        "force_num_keypoints": False,
         "training": {  # training settings
             "do": False,  # switch to turn off other settings regarding training = "training mode"
             "aliked_pretrained": True,

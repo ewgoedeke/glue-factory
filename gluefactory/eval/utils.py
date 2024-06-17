@@ -8,12 +8,6 @@ from ..geometry.homography import homography_corner_error, sym_homography_error
 from ..robust_estimators import load_estimator
 from ..utils.tensor import index_batch
 from ..utils.tools import AUCMetric
-from gluefactory.datasets.homographies_deeplsd import warp_lines
-from gluefactory.models.extractors.jpldd.metrics_lines import match_segments_1_to_1, compute_loc_error, compute_repeatability 
-#H_estimation
-
-num_lines_thresholds = [10, 25, 50, 100, 300]
-thresholds = [1, 2, 3, 4, 5]
 
 
 def check_keys_recursive(d, pattern):
@@ -72,46 +66,6 @@ def eval_matches_epipolar(data: dict, pred: dict) -> dict:
     results["num_matches"] = pts0.shape[0]
     results["num_keypoints"] = (kp0.shape[0] + kp1.shape[0]) / 2.0
 
-    return results
-
-
-def eval_matches_homography_lines(data: dict, pred: dict) -> dict:
-    check_keys_recursive(data, ["image"])
-    check_keys_recursive(data, ["H_0to1"])
-    check_keys_recursive(
-        pred, ["lines0", "lines1"]
-    )
-    (struct_rep, struct_loc_error,
-     H_estim, num_lines) = [], [], [], []
-    H_gt = pred["H"]
-    if H_gt.ndim < 3:
-        H_gt = H_gt[np.newaxis,...]
-    img_shape = list(data["image"].shape[-2:])
-    for lines0, lines1, H in zip(pred["lines0"], pred["lines1"], pred["H"]):
-        num_lines.append((len(lines0) + len(lines1)) / 2)
-        segs0, segs1, match_idx0, match_idx1, distances = match_segments_1_to_1(
-            lines0, lines1, H,img_shape)
-        if len(match_idx0) == 0:
-            struct_rep.append([0] * len(thresholds))
-            struct_loc_error.append([thres for thres in thresholds])
-        else:
-            struct_rep.append(compute_repeatability(lines0, lines1, match_idx0, match_idx1,
-                                                    distances, thresholds, rep_type='num'))
-            struct_loc_error.append(compute_loc_error(distances, num_lines_thresholds))
-        if len(match_idx0) < 3:
-            H_estim.append(0)
-        else:
-            matched_seg0 = segs0[match_idx0]
-            matched_seg1 = warp_lines(segs1, H)[match_idx1]
-            score = 0 #TODO: Fix this
-            #H_estimation(matched_seg0, matched_seg1, H,
-            #                     img_shape)[0]
-            H_estim.append(score)
-    results = {}
-    results["repeatability"] = np.mean(np.stack(struct_rep, axis=0), axis=0)
-    results["localization_error"] = np.mean(np.stack(struct_loc_error, axis=0), axis=0)
-    results["Homography_estimation"] = np.mean(H_estim)
-    results["num_lines"] = np.mean(num_lines)
     return results
 
 
@@ -183,12 +137,12 @@ def eval_homography_robust(data, pred, conf):
     estimator = load_estimator("homography", conf["estimator"])(conf)
 
     data_ = {}
-    # if "keypoints0" in pred:
-    #     kp0, kp1 = pred["keypoints0"], pred["keypoints1"]
-    #     m0, scores0 = pred["matches0"], pred["matching_scores0"]
-    #     pts0, pts1, _ = get_matches_scores(kp0, kp1, m0, scores0)
-    #     data_["m_kpts0"] = pts0
-    #     data_["m_kpts1"] = pts1
+    if "keypoints0" in pred:
+        kp0, kp1 = pred["keypoints0"], pred["keypoints1"]
+        m0, scores0 = pred["matches0"], pred["matching_scores0"]
+        pts0, pts1, _ = get_matches_scores(kp0, kp1, m0, scores0)
+        data_["m_kpts0"] = pts0
+        data_["m_kpts1"] = pts1
     if "lines0" in pred:
         if "orig_lines0" in pred:
             lines0 = pred["orig_lines0"]

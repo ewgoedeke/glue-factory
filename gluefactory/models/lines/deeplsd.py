@@ -14,7 +14,7 @@ class DeepLSD(BaseModel):
         "model_conf": {
             "detect_lines": False,
             "line_detection_params": {
-                "merge": True,
+                "merge": False,
                 "grad_nfa": True,
                 "filtering": "normal",
                 "grad_thresh": 3,
