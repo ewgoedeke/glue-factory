@@ -9,8 +9,7 @@ We implemeneted our model as well as some training infrastructure and helper cod
 
 ### gluefactory/models/extractors/jpldd
 
-is the package containing the implementation of our model. While the file "joint_point_line_extractor.py" is the main file
-of our model and contains the full pipeline. The other files contain submodules or helpers.
+is the package containing the implementation of our model. While the file "joint_point_line_extractor.py" is the main file of our model and contains the full pipeline. The other files contain submodules or helpers.
 
 ### gluefactory/configs
 
@@ -34,7 +33,7 @@ We implemented our own dataset in `minidepth.py`.
 
 ### gluefactory/eval
 
-We implemented a custom evaluation pipeline for our line detection. it can be found in `gluefactory/eval/hpatches_lines.py`
+We implemented a custom evaluation pipeline for our line detection. it can be found in `gluefactory/eval/hpatches_lines.py`.
 
 ## Test our method
 
