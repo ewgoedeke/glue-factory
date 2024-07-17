@@ -1,6 +1,7 @@
-import deeplsd.models.deeplsd_inference as deeplsd_inference
 import numpy as np
 import torch
+
+import gluefactory.models.deeplsd_inference as deeplsd_inference
 
 from ...settings import DATA_PATH
 from ..base_model import BaseModel
@@ -12,7 +13,7 @@ class DeepLSD(BaseModel):
         "max_num_lines": None,
         "force_num_lines": False,
         "model_conf": {
-            "detect_lines": True,
+            "detect_lines": False,
             "line_detection_params": {
                 "merge": False,
                 "grad_nfa": True,
@@ -45,6 +46,18 @@ class DeepLSD(BaseModel):
         cmd = ["wget", link, "-O", path]
         print("Downloading DeepLSD model...")
         subprocess.run(cmd, check=True)
+
+    def forward_ha(self, data):
+        image = data["image"]
+        if image.shape[1] == 3:
+            # Convert to grayscale
+            scale = image.new_tensor([0.299, 0.587, 0.114]).view(1, 3, 1, 1)
+            image = (image * scale).sum(1, keepdim=True)
+
+        # Forward pass
+        with torch.no_grad():
+            outputs = self.net({"image": image})
+        return outputs
 
     def _forward(self, data):
         image = data["image"]

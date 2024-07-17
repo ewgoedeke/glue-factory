@@ -7,3 +7,10 @@
 /data/
 /outputs/
 __pycache__
+.vscode/
+.ipynb_checkpoints/
+# Ignore image files
+*.jpg
+*.png
+*.hdf5
+image_list100.txt

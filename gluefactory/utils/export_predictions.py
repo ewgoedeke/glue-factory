@@ -31,6 +31,7 @@ def export_predictions(
     model = model.to(device).eval()
     for data_ in tqdm(loader):
         data = batch_to_device(data_, device, non_blocking=True)
+        # add temporary fix (add batch dimension & to-float)
         pred = model(data)
         if callback_fn is not None:
             pred = {**callback_fn(pred, data), **pred}
@@ -69,7 +70,7 @@ def export_predictions(
                 if (dt == np.float32) and (dt != np.float16):
                     pred[k] = pred[k].astype(np.float16)
         try:
-            name = data["name"][0]
+            name = data["name"][0]  # [0] # todo use relative name/path
             grp = hfile.create_group(name)
             for k, v in pred.items():
                 grp.create_dataset(k, data=v)

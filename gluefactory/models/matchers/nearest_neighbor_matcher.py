@@ -14,6 +14,7 @@ from ..utils.metrics import matcher_metrics
 
 @torch.no_grad()
 def find_nn(sim, ratio_thresh, distance_thresh):
+    # Return the indexes of the nearest neighbor
     sim_nn, ind_nn = sim.topk(2 if ratio_thresh else 1, dim=-1, largest=True)
     dist_nn = 2 * (1 - sim_nn)
     mask = torch.ones(ind_nn.shape[:-1], dtype=torch.bool, device=sim.device)
